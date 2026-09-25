@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:camera/camera.dart';
+import 'package:uuid/uuid.dart';
 import 'dart:io';
 import 'firebase_options.dart';
 
@@ -31,21 +33,35 @@ class MyHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HttpOverrides.global = MyHttpOverrides();
-  
+
   // KIOSK MODU - Cihazın navigasyon barını ve üst statüs çubuğunu gizler
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  
+
+  // POS kuralları her cihazı kalıcı bir Firebase UID ile tanır.
+  try {
+    if (FirebaseAuth.instance.currentUser == null) {
+      await FirebaseAuth.instance
+          .signInAnonymously()
+          .timeout(const Duration(seconds: 5));
+    }
+    print('🔐 POS Firebase UID: ${FirebaseAuth.instance.currentUser?.uid}');
+  } catch (e) {
+    // Uygulama açılır; ancak odemeYap oturum yokken kesinlikle tahsilat yapmaz.
+    print('❌ POS Firebase oturumu açılamadı: $e');
+  }
+
   try {
     cameras = await availableCameras();
     if (cameras != null && cameras!.isNotEmpty) {
@@ -57,7 +73,7 @@ void main() async {
           break;
         }
       }
-      
+
       globalCameraController = CameraController(
         frontCamera ?? cameras!.first,
         ResolutionPreset.medium,
@@ -86,7 +102,7 @@ class OkulOtomatApp extends StatelessWidget {
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Okul Otomat',
@@ -125,7 +141,7 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     final isTablet = screenWidth > 600;
-    
+
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -143,7 +159,6 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-
                     SizedBox(height: isTablet ? 20 : 10),
                     Text(
                       'OKUL OTOMAT',
@@ -191,7 +206,9 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
                                 onTap: () {
                                   Navigator.pushReplacement(
                                     context,
-                                    MaterialPageRoute(builder: (context) => UrunListesiEkrani()),
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            UrunListesiEkrani()),
                                   );
                                 },
                               ),
@@ -232,7 +249,9 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
                                 onTap: () {
                                   Navigator.pushReplacement(
                                     context,
-                                    MaterialPageRoute(builder: (context) => UrunListesiEkrani()),
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            UrunListesiEkrani()),
                                   );
                                 },
                               ),
@@ -352,7 +371,7 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
     final sifreController = TextEditingController();
     final sifreFocusNode = FocusNode();
     bool dialogClosed = false;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -364,11 +383,11 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
             SystemChannels.textInput.invokeMethod('TextInput.show');
           }
         });
-        
+
         // Kart okuyucu listener - Admin kartı okutulursa otomatik giriş
         sifreController.addListener(() {
           if (dialogClosed) return;
-          
+
           final text = sifreController.text.trim();
           // Admin şifresi girilirse otomatik giriş yap
           if (text == VeriYoneticisi().adminSifresi) {
@@ -385,7 +404,7 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
             );
           }
         });
-        
+
         return GestureDetector(
           onTap: () {
             // Dialog'a her tıklamada focus'u şifre alanına ver
@@ -410,7 +429,8 @@ class _AnaSayfaSecimState extends State<AnaSayfaSecim> {
                     border: OutlineInputBorder(),
                   ),
                   onSubmitted: (value) {
-                    if (!dialogClosed && value == VeriYoneticisi().adminSifresi) {
+                    if (!dialogClosed &&
+                        value == VeriYoneticisi().adminSifresi) {
                       dialogClosed = true;
                       Future.microtask(() {
                         sifreController.dispose();
@@ -516,21 +536,22 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
   // Kart okuyucudan gelen veriyi yakalamak için
   final FocusNode _focusNode = FocusNode();
   final TextEditingController _kartOkuyucuController = TextEditingController();
-  
+
   // RAW KEYBOARD LISTENER İÇİN
   final StringBuffer _kartBuffer = StringBuffer();
   DateTime _lastKeyPress = DateTime.now();
-  
+
   Timer? _debounceTimer;
   Timer? _cartIdleTimer; // 5 dakika boşta kalırsa sepeti otomatik temizle
 
   String? secilenKategori; // Hangi kategori seçili
   bool _verilerYuklendi = false; // Firebase verileri yüklendi mi?
-  
+
   // Dialog durumları
   bool _odemeDialogAcik = false;
   bool _bakiyeDialogAcik = false;
-  
+  bool _odemeIsleniyor = false;
+
   // Debug ve Status
   String _statusMesaji = 'Başlatılıyor...';
   Color _statusRenk = Colors.orange;
@@ -538,22 +559,23 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
   @override
   void initState() {
     super.initState();
-    
+
     // Android sistem tuşlarını gizle (ana sayfa, geri, son uygulamalar)
     SystemChrome.setEnabledSystemUIMode(
       SystemUiMode.immersiveSticky,
       overlays: [],
     );
-    
+
     // Firebase verilerini yükle
+    VeriYoneticisi().addListener(_veriDurumuDegisti);
     _firebaseVerileriniYukle();
-    
+
     // Kart okuyucu listener - Her zaman aktif
     _kartOkuyucuController.addListener(() {
       String metin = _kartOkuyucuController.text.trim();
-      
+
       if (metin.isEmpty) return;
-      
+
       // Kart ID'yi temizle (ardışık tekrarları kaldır)
       String temizKartID = '';
       for (int i = 0; i < metin.length; i++) {
@@ -562,20 +584,26 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
         }
       }
 
-
       print('🔍 KART OKUYUCU: "${metin}" (Uzunluk: ${metin.length})');
       print('📝 HAM VERİ: "${_kartOkuyucuController.text}"');
-      
+
       // Dialog açıksa direkt işle
       if (_odemeDialogAcik && metin.length >= 10) {
-        print('💳 ÖDEME DIALOG - Kart okundu: $metin');
-        Navigator.of(context, rootNavigator: true).pop(); // Dialog'u kapat
-        _kartIsleminiYap(metin);
-        _kartOkuyucuController.clear();
-        _odemeDialogAcik = false;
+        // Okuyucu bazen karakterleri parça parça yollar. Son karakterden sonra
+        // tek bir olay üret; TextField içinden ikinci bir ödeme tetiklenmez.
+        _debounceTimer?.cancel();
+        _debounceTimer = Timer(const Duration(milliseconds: 150), () {
+          if (!mounted || !_odemeDialogAcik || _odemeIsleniyor) return;
+          final okunanKart = _kartOkuyucuController.text.trim();
+          if (okunanKart.length < 10) return;
+          _odemeDialogAcik = false;
+          Navigator.of(context, rootNavigator: true).pop();
+          _kartOkuyucuController.clear();
+          _kartIsleminiYap(okunanKart);
+        });
         return;
       }
-      
+
       if (_bakiyeDialogAcik && metin.length >= 10) {
         print('💰 BAKİYE DIALOG - Kart okundu: $metin');
         Navigator.of(context, rootNavigator: true).pop(); // Dialog'u kapat
@@ -584,7 +612,7 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
         _bakiyeDialogAcik = false;
         return;
       }
-      
+
       // Normal durum - ana ekran
       if (metin.length >= 10) {
         print('✅ 10+ karakter, timer başlatıldı');
@@ -598,13 +626,35 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
         });
       }
     });
-    
+
     // Ekran yüklendiğinde focus'u kart okuyucuya ver
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _focusNode.requestFocus();
     });
   }
-  
+
+  void _veriDurumuDegisti() {
+    if (!mounted) return;
+    final veri = VeriYoneticisi();
+    setState(() {
+      if (veri.mutabakatGerekenSatisSayisi > 0) {
+        _statusMesaji =
+            'Mutabakat gerekli: ${veri.mutabakatGerekenSatisSayisi} satış';
+        _statusRenk = Colors.red;
+      } else if (veri.bekleyenOfflineSatisSayisi > 0) {
+        _statusMesaji =
+            'Çevrimdışı • ${veri.bekleyenOfflineSatisSayisi} satış bekliyor';
+        _statusRenk = Colors.orange;
+      } else if (!veri.internetVarMi) {
+        _statusMesaji = 'Çevrimdışı • Satışa hazır';
+        _statusRenk = Colors.orange;
+      } else {
+        _statusMesaji = 'Online (${veri.ogrenciler.length} Öğrenci)';
+        _statusRenk = Colors.green;
+      }
+    });
+  }
+
   // Firebase verilerini yükle
   Future<void> _firebaseVerileriniYukle() async {
     print("🔄 Firebase verileri yükleniyor...");
@@ -613,30 +663,19 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       _verilerYuklendi = true;
     });
     print("✅ Firebase verileri yüklendi - Kart okuyucu hazır!");
-    
-    setState(() {
-      _statusMesaji = 'Online (${VeriYoneticisi().ogrenciler.length} Öğrenci)';
-      _statusRenk = Colors.green;
-    });
+
+    _veriDurumuDegisti();
   }
-  
+
   Future<void> _verileriYenile() async {
     setState(() {
       _statusMesaji = 'Yenileniyor...';
       _statusRenk = Colors.orange;
     });
-    
+
     await VeriYoneticisi().verileriYukle();
-    
-    setState(() {
-      if (VeriYoneticisi().ogrenciler.isEmpty) {
-         _statusMesaji = 'Veri Yok / Offline';
-         _statusRenk = Colors.red;
-      } else {
-         _statusMesaji = 'Online (${VeriYoneticisi().ogrenciler.length} Öğrenci)';
-         _statusRenk = Colors.green;
-      }
-    });
+
+    _veriDurumuDegisti();
   }
 
   // ── Sepet boşta kalma zamanlayıcısı ──────────────────────────────────────
@@ -681,9 +720,10 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       SystemUiMode.edgeToEdge,
       overlays: SystemUiOverlay.values,
     );
-    
+
     _debounceTimer?.cancel();
     _cartIdleTimer?.cancel(); // Boşta kalma zamanlayıcısını temizle
+    VeriYoneticisi().removeListener(_veriDurumuDegisti);
     _kartOkuyucuController.dispose();
     _focusNode.dispose();
     super.dispose();
@@ -691,13 +731,41 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
 
   // Kategoriler
   final List<Kategori> kategoriler = [
-    Kategori(isim: 'İçecekler', icon: Icons.local_drink, renk: Colors.blue, resimYolu: 'assets/images/beypazarı.png'),
-    Kategori(isim: 'Atıştırmalıklar', icon: Icons.cookie, renk: Colors.orange, resimYolu: 'assets/images/ruffles.jpg'),
-    Kategori(isim: 'Tatlılar', icon: Icons.cake, renk: Colors.red, resimYolu: 'assets/images/tutku.jpg'),
-    Kategori(isim: 'Gofretler', icon: Icons.fastfood, renk: Colors.brown, resimYolu: 'assets/images/gofret.png'),
-    Kategori(isim: 'Kekler', icon: Icons.breakfast_dining, renk: Colors.yellow, resimYolu: 'assets/images/tutku.jpg'),
-    Kategori(isim: 'Krakerler', icon: Icons.bakery_dining, renk: Colors.orangeAccent, resimYolu: 'assets/images/çizi cips.png'),
-    Kategori(isim: 'Çikolatalar', icon: Icons.icecream, renk: Colors.brown, resimYolu: 'assets/images/biskrem.png'),
+    Kategori(
+        isim: 'İçecekler',
+        icon: Icons.local_drink,
+        renk: Colors.blue,
+        resimYolu: 'assets/images/beypazarı.png'),
+    Kategori(
+        isim: 'Atıştırmalıklar',
+        icon: Icons.cookie,
+        renk: Colors.orange,
+        resimYolu: 'assets/images/ruffles.jpg'),
+    Kategori(
+        isim: 'Tatlılar',
+        icon: Icons.cake,
+        renk: Colors.red,
+        resimYolu: 'assets/images/tutku.jpg'),
+    Kategori(
+        isim: 'Gofretler',
+        icon: Icons.fastfood,
+        renk: Colors.brown,
+        resimYolu: 'assets/images/gofret.png'),
+    Kategori(
+        isim: 'Kekler',
+        icon: Icons.breakfast_dining,
+        renk: Colors.yellow,
+        resimYolu: 'assets/images/tutku.jpg'),
+    Kategori(
+        isim: 'Krakerler',
+        icon: Icons.bakery_dining,
+        renk: Colors.orangeAccent,
+        resimYolu: 'assets/images/çizi cips.png'),
+    Kategori(
+        isim: 'Çikolatalar',
+        icon: Icons.icecream,
+        renk: Colors.brown,
+        resimYolu: 'assets/images/biskrem.png'),
   ];
 
   // Firestore'dan gelen ürünleri kullan
@@ -719,6 +787,16 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
 
   void sepeteEkle(Urun urun) {
     int index = sepet.indexWhere((item) => item.urun.isim == urun.isim);
+    final mevcutMiktar = index == -1 ? 0 : sepet[index].miktar;
+    if (urun.stok <= 0 || mevcutMiktar >= urun.stok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${urun.isim} için mevcut stok sınırına ulaşıldı.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     setState(() {
       if (index != -1) {
         sepet[index].miktar++;
@@ -771,7 +849,7 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
     print("🟢 Bakiye sorgula penceresi açılıyor...");
     _kartOkuyucuController.clear();
     _bakiyeDialogAcik = true; // Flag set et
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -781,14 +859,16 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
           print("🎯 Bakiye sorgula - Focus veriliyor...");
           _focusNode.requestFocus();
         });
-        
+
         return WillPopScope(
           onWillPop: () async => false,
           child: AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Text(
               "Bakiye Sorgula",
-              style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+              style:
+                  TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
             content: SingleChildScrollView(
@@ -815,10 +895,11 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                     builder: (context, TextEditingValue value, __) {
                       return Column(
                         children: [
-                          Text(
-                            "Okunan: '${value.text}'", 
-                            style: TextStyle(fontSize: 16, color: Colors.red, fontWeight: FontWeight.bold)
-                          ),
+                          Text("Okunan: '${value.text}'",
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold)),
                           Text(
                             "Uzunluk: ${value.text.length}",
                             style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -841,42 +922,59 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                     maxLength: 50,
                     onChanged: (kartID) {
                       // Kart okuyucu ENTER basmıyor, onChanged kullan
-                      print("🟢 Bakiye sorgula - Kart değişti: $kartID (Uzunluk: ${kartID.length})");
+                      print(
+                          "🟢 Bakiye sorgula - Kart değişti: $kartID (Uzunluk: ${kartID.length})");
                       if (kartID.trim().length >= 10) {
                         // Yeterli karakter okundu, işlem yap
                         Navigator.pop(dialogContext); // Dialog'u kapat
-                        
+
                         String temizKartID = '';
                         for (int i = 0; i < kartID.trim().length; i++) {
-                          if (i == 0 || kartID.trim()[i] != kartID.trim()[i - 1]) {
+                          if (i == 0 ||
+                              kartID.trim()[i] != kartID.trim()[i - 1]) {
                             temizKartID += kartID.trim()[i];
                           }
                         }
                         print("🧹 Temizlenmiş ID: $temizKartID");
-                        
+
                         final veriYoneticisi = VeriYoneticisi();
                         final ogrenci = veriYoneticisi.ogrenciBul(temizKartID);
-                        
+
                         if (ogrenci != null) {
-                          print("✅ Öğrenci bulundu: ${ogrenci.adSoyad}, Bakiye: ${ogrenci.bakiye}");
+                          print(
+                              "✅ Öğrenci bulundu: ${ogrenci.adSoyad}, Bakiye: ${ogrenci.bakiye}");
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
-                              title: Text("Bakiye Bilgisi", style: TextStyle(color: Colors.green)),
+                              title: Text("Bakiye Bilgisi",
+                                  style: TextStyle(color: Colors.green)),
                               content: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Text(ogrenci.adSoyad, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                                  Text(ogrenci.adSoyad,
+                                      style: TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold)),
                                   SizedBox(height: 8),
-                                  Text(ogrenci.sinif, style: TextStyle(fontSize: 16, color: Colors.grey)),
+                                  Text(ogrenci.sinif,
+                                      style: TextStyle(
+                                          fontSize: 16, color: Colors.grey)),
                                   SizedBox(height: 20),
-                                  Text("Mevcut Bakiye:", style: TextStyle(fontSize: 16, color: Colors.grey)),
-                                  Text("${ogrenci.bakiye.toStringAsFixed(2)} TL", style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green)),
+                                  Text("Mevcut Bakiye:",
+                                      style: TextStyle(
+                                          fontSize: 16, color: Colors.grey)),
+                                  Text(
+                                      "${ogrenci.bakiye.toStringAsFixed(2)} TL",
+                                      style: TextStyle(
+                                          fontSize: 32,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.green)),
                                 ],
                               ),
                               actions: [
                                 TextButton(
-                                  child: Text("Tamam", style: TextStyle(fontSize: 18)),
+                                  child: Text("Tamam",
+                                      style: TextStyle(fontSize: 18)),
                                   onPressed: () {
                                     Navigator.pop(context);
                                     _focusNode.requestFocus();
@@ -890,11 +988,14 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
-                              title: Text("Tanımsız Kart", style: TextStyle(color: Colors.red)),
-                              content: Text("Bu kart sisteme kayıtlı değil.\nKart ID: $temizKartID"),
+                              title: Text("Tanımsız Kart",
+                                  style: TextStyle(color: Colors.red)),
+                              content: Text(
+                                  "Bu kart sisteme kayıtlı değil.\nKart ID: $temizKartID"),
                               actions: [
                                 TextButton(
-                                  child: Text("Tamam", style: TextStyle(fontSize: 18)),
+                                  child: Text("Tamam",
+                                      style: TextStyle(fontSize: 18)),
                                   onPressed: () {
                                     Navigator.pop(context);
                                     _focusNode.requestFocus();
@@ -904,7 +1005,7 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                             ),
                           );
                         }
-                        
+
                         _kartOkuyucuController.clear();
                       }
                     },
@@ -912,7 +1013,7 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                       print("🟢 Bakiye sorgula - Kart okundu (ENTER): $kartID");
                       if (kartID.isNotEmpty) {
                         Navigator.pop(dialogContext); // Dialog'u kapat
-                        
+
                         // Kart ID'sini temizle
                         String temizKartID = '';
                         for (int i = 0; i < kartID.length; i++) {
@@ -921,19 +1022,22 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                           }
                         }
                         print("🧹 Temizlenmiş ID: $temizKartID");
-                        
+
                         // Öğrenciyi bul ve bakiyeyi göster
                         final veriYoneticisi = VeriYoneticisi();
                         final ogrenci = veriYoneticisi.ogrenciBul(temizKartID);
-                        
+
                         if (ogrenci != null) {
-                          print("✅ Öğrenci bulundu: ${ogrenci.adSoyad}, Bakiye: ${ogrenci.bakiye}");
+                          print(
+                              "✅ Öğrenci bulundu: ${ogrenci.adSoyad}, Bakiye: ${ogrenci.bakiye}");
                           showDialog(
                             context: context,
                             builder: (context) => AlertDialog(
                               title: Text(
                                 "Öğrenci Bilgileri",
-                                style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
+                                style: TextStyle(
+                                    color: Colors.indigo,
+                                    fontWeight: FontWeight.bold),
                                 textAlign: TextAlign.center,
                               ),
                               content: Column(
@@ -944,19 +1048,23 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                                     backgroundColor: Colors.indigo,
                                     child: Text(
                                       ogrenci.adSoyad[0],
-                                      style: TextStyle(fontSize: 40, color: Colors.white),
+                                      style: TextStyle(
+                                          fontSize: 40, color: Colors.white),
                                     ),
                                   ),
                                   SizedBox(height: 20),
                                   Text(
                                     ogrenci.adSoyad,
-                                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                                    style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.bold),
                                     textAlign: TextAlign.center,
                                   ),
                                   SizedBox(height: 10),
                                   Text(
                                     ogrenci.sinif,
-                                    style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                                    style: TextStyle(
+                                        fontSize: 18, color: Colors.grey[600]),
                                   ),
                                   SizedBox(height: 20),
                                   Container(
@@ -969,7 +1077,9 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                                       children: [
                                         Text(
                                           'Mevcut Bakiye',
-                                          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                          style: TextStyle(
+                                              fontSize: 14,
+                                              color: Colors.grey[600]),
                                         ),
                                         SizedBox(height: 5),
                                         Text(
@@ -987,7 +1097,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                               ),
                               actions: [
                                 TextButton(
-                                  child: Text("Tamam", style: TextStyle(fontSize: 16)),
+                                  child: Text("Tamam",
+                                      style: TextStyle(fontSize: 16)),
                                   onPressed: () {
                                     Navigator.pop(context);
                                     _focusNode.requestFocus();
@@ -1055,32 +1166,24 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
   // Kart okutulduğunda çağrılır
   void _kartOkutuldu(String kartID) {
     print("✅ Kart okutuldu (ham): $kartID");
-    
-    // Kart ID'sini temizle - ardışık tekrar eden karakterleri kaldır
-    // Örnek: 35396353963094 -> 3539630941
-    String temizKartID = '';
-    
-    for (int i = 0; i < kartID.length; i++) {
-      // Son eklenen karakter ile aynı değilse ekle
-      if (temizKartID.isEmpty || kartID[i] != temizKartID[temizKartID.length - 1]) {
-        temizKartID += kartID[i];
-      }
-    }
-    
-    print("🧹 Temizlenen kart ID: $kartID -> $temizKartID");
-    
+
+    // Kart numarasında gerçek ardışık rakamlar bulunabilir; karakter
+    // silmek başka bir hesaba tahsilat riski doğurur. Yalnızca boşlukları temizle.
+    final temizKartID = kartID.trim();
+
     final veriYoneticisi = VeriYoneticisi();
-    
+
     // DEBUG: Tüm öğrenci ID'lerini yazdır
-    print("📋 Sistemdeki öğrenci ID'leri: ${veriYoneticisi.ogrenciler.keys.toList()}");
+    print(
+        "📋 Sistemdeki öğrenci ID'leri: ${veriYoneticisi.ogrenciler.keys.toList()}");
     print("🔍 Aranan ID: '$temizKartID' (${temizKartID.length} karakter)");
-    
+
     // Her bir ID ile karşılaştır
     veriYoneticisi.ogrenciler.forEach((key, value) {
-      print("   🔸 Firebase ID: '$key' (${key.length} karakter) - Eşit mi? ${key == temizKartID}");
+      print(
+          "   🔸 Firebase ID: '$key' (${key.length} karakter) - Eşit mi? ${key == temizKartID}");
     });
-    
-    
+
     // Açık dialogları kapat (maksimum 5 deneme)
     int popCount = 0;
     while (Navigator.canPop(context) && popCount < 5) {
@@ -1088,11 +1191,11 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       Navigator.pop(context);
       popCount++;
     }
-    
+
     // Dialog kapanması için kısa bekleme
     Future.delayed(Duration(milliseconds: 150), () {
       if (!mounted) return;
-      
+
       final ogrenci = veriYoneticisi.ogrenciBul(temizKartID);
 
       if (ogrenci != null) {
@@ -1108,7 +1211,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
             builder: (context) => AlertDialog(
               title: Text(
                 "Öğrenci Bilgileri",
-                style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: Colors.indigo, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               content: Column(
@@ -1144,7 +1248,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                       children: [
                         Text(
                           'Mevcut Bakiye',
-                          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                          style:
+                              TextStyle(fontSize: 14, color: Colors.grey[600]),
                         ),
                         SizedBox(height: 5),
                         Text(
@@ -1202,11 +1307,11 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
   }
 
   // --- ÖDEME SİSTEMİ (YENİ - KLAVYE MODU) ---
-  
+
   // Sepet özetini göster
   void _odemePenceresiniAc() {
     if (sepet.isEmpty) return;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1214,14 +1319,16 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
         return WillPopScope(
           onWillPop: () async => false,
           child: AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Row(
               children: [
                 Icon(Icons.shopping_cart, color: Colors.indigo, size: 30),
                 SizedBox(width: 10),
                 Text(
                   "Sepet Özeti",
-                  style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: Colors.indigo, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -1238,25 +1345,39 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                       itemCount: sepet.length,
                       itemBuilder: (context, index) {
                         final sepetOgesi = sepet[index];
-                        final toplamFiyat = sepetOgesi.urun.fiyat * sepetOgesi.miktar;
+                        final toplamFiyat =
+                            sepetOgesi.urun.fiyat * sepetOgesi.miktar;
                         return Card(
                           margin: EdgeInsets.symmetric(vertical: 4),
                           child: ListTile(
                             leading: Container(
                               width: 50,
                               height: 50,
-                              child: sepetOgesi.urun.resimYolu.startsWith('http') 
-                                ? CachedNetworkImage(
-                                    imageUrl: sepetOgesi.urun.resimYolu,
-                                    fit: BoxFit.contain,
-                                    placeholder: (context, url) => Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-                                    errorWidget: (context, url, error) => Icon(Icons.image_not_supported, color: Colors.grey),
-                                  )
-                                : Image.asset(
-                                    sepetOgesi.urun.resimYolu.isNotEmpty ? sepetOgesi.urun.resimYolu : 'assets/images/beypazarı.png',
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (context, error, stackTrace) => Icon(Icons.image_not_supported, color: Colors.grey),
-                                  ),
+                              child: sepetOgesi.urun.resimYolu
+                                      .startsWith('http')
+                                  ? CachedNetworkImage(
+                                      imageUrl: sepetOgesi.urun.resimYolu,
+                                      fit: BoxFit.contain,
+                                      placeholder: (context, url) => Center(
+                                          child: SizedBox(
+                                              width: 20,
+                                              height: 20,
+                                              child: CircularProgressIndicator(
+                                                  strokeWidth: 2))),
+                                      errorWidget: (context, url, error) =>
+                                          Icon(Icons.image_not_supported,
+                                              color: Colors.grey),
+                                    )
+                                  : Image.asset(
+                                      sepetOgesi.urun.resimYolu.isNotEmpty
+                                          ? sepetOgesi.urun.resimYolu
+                                          : 'assets/images/beypazarı.png',
+                                      fit: BoxFit.contain,
+                                      errorBuilder:
+                                          (context, error, stackTrace) => Icon(
+                                              Icons.image_not_supported,
+                                              color: Colors.grey),
+                                    ),
                             ),
                             title: Text(
                               sepetOgesi.urun.isim,
@@ -1287,7 +1408,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                       children: [
                         Text(
                           'TOPLAM:',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                         Text(
                           '${toplamTutar.toStringAsFixed(2)} TL',
@@ -1334,13 +1456,14 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       },
     );
   }
-  
+
   // Kart okutma ekranı
   void _kartOkutmaPenceresiniAc() {
+    if (_odemeIsleniyor || sepet.isEmpty) return;
     print("🔵 Kart okutma penceresi açılıyor...");
     _kartOkuyucuController.clear();
     _odemeDialogAcik = true; // Flag set et
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1350,14 +1473,16 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
           print("🎯 Focus veriliyor...");
           _focusNode.requestFocus();
         });
-        
+
         return WillPopScope(
           onWillPop: () async => false,
           child: AlertDialog(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
             title: Text(
               "Kart Okutun",
-              style: TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
+              style:
+                  TextStyle(color: Colors.indigo, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             ),
             content: SingleChildScrollView(
@@ -1367,7 +1492,7 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                   Icon(Icons.credit_card, size: 100, color: Colors.indigo),
                   SizedBox(height: 30),
                   Text(
-                    "Lütfen kartınızı okutun...", 
+                    "Lütfen kartınızı okutun...",
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),
@@ -1379,12 +1504,15 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                   ),
                   SizedBox(height: 20),
                   Text(
-                    "Ödenecek Tutar:", 
+                    "Ödenecek Tutar:",
                     style: TextStyle(fontSize: 16, color: Colors.grey[600]),
                   ),
                   Text(
-                    "${toplamTutar.toStringAsFixed(2)} TL", 
-                    style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.indigo),
+                    "${toplamTutar.toStringAsFixed(2)} TL",
+                    style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.indigo),
                   ),
                   SizedBox(height: 30),
                   // Gizli TextField - sadece kart okuyucu için
@@ -1398,32 +1526,6 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                       counterText: '',
                     ),
                     maxLength: 50,
-                    onChanged: (kartID) {
-                      // Kart okuyucu ENTER basmıyor, onChanged kullan
-                      print("🔵 Dialog içinde kart değişti: $kartID (Uzunluk: ${kartID.length})");
-                      if (kartID.trim().length >= 10) {
-                        // Yeterli karakter okundu, işlem yap
-                        Navigator.pop(dialogContext); // Dialog'u kapat
-                        _odemeDialogAcik = false; // Flag temizle
-                        // Dialog kapanma animasyonu tamamlansın diye bekle
-                        Future.delayed(Duration(milliseconds: 300), () {
-                          _kartIsleminiYap(kartID.trim()); // Ödeme işlemini yap
-                        });
-                        _kartOkuyucuController.clear();
-                      }
-                    },
-                    onSubmitted: (kartID) {
-                      print("🔵 Dialog içinde kart okundu (ENTER): $kartID");
-                      if (kartID.isNotEmpty) {
-                        Navigator.pop(dialogContext); // Dialog'u kapat
-                        _odemeDialogAcik = false; // Flag temizle
-                        // Dialog kapanma animasyonu tamamlansın diye bekle
-                        Future.delayed(Duration(milliseconds: 300), () {
-                          _kartIsleminiYap(kartID); // Ödeme işlemini yap
-                        });
-                      }
-                      _kartOkuyucuController.clear();
-                    },
                   ),
                   SizedBox(
                     width: 40,
@@ -1453,102 +1555,112 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
   }
 
   Future<void> _kartIsleminiYap(String kartID) async {
-    print("💳 _kartIsleminiYap çağrıldı: $kartID");
-    
-    // Kart ID'sini temizle (ardışık tekrarları kaldır)
-    String temizKartID = '';
-    for (int i = 0; i < kartID.length; i++) {
-      if (i == 0 || kartID[i] != kartID[i - 1]) {
-        temizKartID += kartID[i];
-      }
+    if (_odemeIsleniyor) {
+      print('⚠️ Devam eden ödeme var; ikinci kart olayı reddedildi.');
+      return;
     }
-    print("🧹 Temizlenmiş Kart ID: $temizKartID (Orijinal: $kartID)");
-    
-    // Veri yöneticisinden öğrenci bilgisini al
-    final veriYoneticisi = VeriYoneticisi();
-    final ogrenci = veriYoneticisi.ogrenciBul(temizKartID);
+    _odemeIsleniyor = true;
+    print("💳 _kartIsleminiYap çağrıldı: $kartID");
+    try {
+      final temizKartID = kartID.trim();
+      final veriYoneticisi = VeriYoneticisi();
+      final ogrenci = veriYoneticisi.ogrenciBul(temizKartID);
+      if (ogrenci == null) {
+        if (mounted) {
+          await _sonucGoster(
+              'Tanımsız Kart',
+              'Bu kart sisteme kayıtlı değil.\nKart ID: $temizKartID',
+              false,
+              false);
+        }
+        return;
+      }
 
-    if (ogrenci != null) {
-      print("✅ Öğrenci bulundu: ${ogrenci.adSoyad}, Bakiye: ${ogrenci.bakiye}");
-      
-      // Sepet boşsa sadece bakiye göster
-      if (toplamTutar == 0) {
-        print("ℹ️ Sepet boş, bakiye gösteriliyor...");
-        _sonucGoster(
-          "Bakiye Bilgisi", 
-          "${ogrenci.adSoyad}\n${ogrenci.sinif}\n\nMevcut Bakiye: ${ogrenci.bakiye.toStringAsFixed(2)} TL", 
+      final sepetAnlik = sepet
+          .map((item) => SepetItem(urun: item.urun, miktar: item.miktar))
+          .toList(growable: false);
+      if (sepetAnlik.isEmpty) {
+        await _sonucGoster(
+          'Bakiye Bilgisi',
+          '${ogrenci.adSoyad}\n${ogrenci.sinif}\n\nMevcut Bakiye: ${ogrenci.bakiye.toStringAsFixed(2)} TL',
           true,
-          false // Refresh yapma
+          false,
         );
         return;
       }
-      
-      print("🛒 Sepet toplam: $toplamTutar TL");
-      
-      // Limit belirleme: Personel ise -50, Öğrenci ise -10
-      double limit = (ogrenci.tip == 'Personel') ? -50.0 : -10.0;
-      
-      // Sepet doluysa ödeme yap
-      if ((ogrenci.bakiye - toplamTutar) >= limit) {
-        print("✅ Yeterli limit var, ödeme yapılıyor...");
 
-        // Arkaplanda fotoğraf çek
-        String? fotoYolu;
-        if (globalCameraController != null && globalCameraController!.value.isInitialized) {
-          try {
-            final XFile image = await globalCameraController!.takePicture();
-            fotoYolu = 'islem_fotograflari/$temizKartID/${DateTime.now().millisecondsSinceEpoch}.jpg';
-            
-            // Arka planda Firebase'e yükle (await olmadan!)
-            _fotografiArkaplandaYukle(image, fotoYolu);
-          } catch (e) {
-            print("⚠️ Fotoğraf çekilemedi: $e");
-          }
-        }
-
-        // Başarılı ödeme
-        // Timeout ile ödeme yap (offline modda Firebase takılmasın)
+      final satisId = 'pos_${const Uuid().v4()}';
+      String? fotoYolu;
+      String? yerelFotoYolu;
+      if (globalCameraController != null &&
+          globalCameraController!.value.isInitialized) {
         try {
-          await veriYoneticisi.odemeYap(temizKartID, toplamTutar, sepet, islemFotografiYolu: fotoYolu)
-            .timeout(Duration(seconds: 3)); // 3 saniye timeout
+          final XFile image = await globalCameraController!.takePicture();
+          yerelFotoYolu = image.path;
+          fotoYolu = 'islem_fotograflari/$temizKartID/$satisId.jpg';
+          _fotografiArkaplandaYukle(image, fotoYolu);
         } catch (e) {
-          print("⚠️ Ödeme Firebase'e kaydedilemedi ama offline kaydedildi: $e");
-          // Offline kayıt zaten odemeYap içinde yapılıyor
+          print('⚠️ Fotoğraf çekilemedi: $e');
         }
-        
-        // Widget hala mounted mı kontrol et
-        if (!mounted) {
-          print("⚠️ Widget artık mounted değil, dialog gösterilemiyor");
-          return;
-        }
-        
-        // Ödeme sonrası güncel bakiyeyi al
-        final guncelOgrenci = veriYoneticisi.ogrenciBul(temizKartID);
-        final kalanBakiye = guncelOgrenci?.bakiye ?? 0.0;
-        
-        _sonucGoster(
-          "Ödeme Başarılı!", 
-          "${ogrenci.adSoyad}\nÖdenen: ${toplamTutar.toStringAsFixed(2)} TL\nKalan Bakiye: ${kalanBakiye.toStringAsFixed(2)} TL", 
-          true,
-          true // Refresh yap
+      }
+
+      late final OdemeSonucu sonuc;
+      try {
+        sonuc = await veriYoneticisi.odemeYap(
+          temizKartID,
+          sepetAnlik,
+          satisId: satisId,
+          islemFotografiYolu: fotoYolu,
         );
-      } else {
-        print("❌ Yetersiz Bakiye!");
-        if (!mounted) return;
-        
-        double limit = (ogrenci.tip == 'Personel') ? -50.0 : -10.0;
-        
-        _sonucGoster(
-          "Yetersiz Bakiye", 
-          "${ogrenci.adSoyad}\nMevcut Bakiye: ${ogrenci.bakiye.toStringAsFixed(2)} TL\nGerekli: ${toplamTutar.toStringAsFixed(2)} TL\n(${limit.toStringAsFixed(0)} TL limiti aşıldı)", 
-          false,
-          false // Refresh yapma
+      } on OdemeHatasi catch (e) {
+        if (!e.tekrarDenenebilir) rethrow;
+        sonuc = await veriYoneticisi.cevrimdisiOdemeKaydet(
+          temizKartID,
+          sepetAnlik,
+          satisId: satisId,
+          islemFotografiYolu: fotoYolu,
+          yerelFotografYolu: yerelFotoYolu,
         );
       }
-    } else {
-      print("❌ Öğrenci bulunamadı: $temizKartID");
       if (!mounted) return;
-      _sonucGoster("Tanımsız Kart", "Bu kart sisteme kayıtlı değil.\nKart ID: $temizKartID", false, false);
+
+      // Transaction onaylandığı anda sepeti kapat; sonuç penceresini
+      // beklerken aynı sepetin başka karta satılmasına izin verme.
+      _cancelCartTimer();
+      setState(() {
+        sepet.clear();
+        toplamTutar = 0;
+        secilenKategori = null;
+      });
+      await _sonucGoster(
+        sonuc.cevrimdisi
+            ? 'Çevrimdışı Satış Kaydedildi'
+            : (sonuc.dahaOnceIslendi
+                ? 'Ödeme Zaten Kayıtlı'
+                : 'Ödeme Başarılı!'),
+        '${ogrenci.adSoyad}\nÖdenen: ${sonuc.toplamTutar.toStringAsFixed(2)} TL'
+        '\nKalan Bakiye: ${sonuc.yeniBakiye.toStringAsFixed(2)} TL'
+        '${sonuc.cevrimdisi ? '\n\nİnternet gelince otomatik senkronize edilecek.' : ''}',
+        true,
+        false,
+      );
+    } on OdemeHatasi catch (e) {
+      if (mounted) {
+        await _sonucGoster('Ödeme Yapılmadı', e.mesaj, false, false);
+      }
+    } catch (e) {
+      print('❌ Beklenmeyen ödeme hatası: $e');
+      if (mounted) {
+        await _sonucGoster(
+          'Ödeme Yapılmadı',
+          'Sunucu onayı alınamadı. Bakiye ve stok değiştirilmedi.',
+          false,
+          false,
+        );
+      }
+    } finally {
+      _odemeIsleniyor = false;
+      if (mounted) _focusNode.requestFocus();
     }
   }
 
@@ -1557,58 +1669,50 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       final ref = FirebaseStorage.instance.ref().child(path);
       await ref.putFile(File(image.path));
       print("✅ Fotoğraf arka planda yüklendi: $path");
-      
-      // İsterseniz dosyayı silebilirsiniz: 
+
+      // İsterseniz dosyayı silebilirsiniz:
       // File(image.path).delete();
     } catch (e) {
       print("⚠️ Arka planda fotoğraf yüklenemedi: $e");
     }
   }
 
-  void _sonucGoster(String baslik, String mesaj, bool basarili, bool refreshYap) {
-    showDialog(
+  Future<void> _sonucGoster(
+      String baslik, String mesaj, bool basarili, bool refreshYap) async {
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text(baslik, style: TextStyle(color: basarili ? Colors.green : Colors.red)),
+        title: Text(baslik,
+            style: TextStyle(color: basarili ? Colors.green : Colors.red)),
         content: Text(mesaj, textAlign: TextAlign.center),
         actions: [
           TextButton(
-            child: Text("Tamam", style: TextStyle(fontSize: 18)), 
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              
-              // Eğer refresh yapılacaksa sepeti temizle ve kategoriler sayfasına dön
-              if (refreshYap) {
-                _cancelCartTimer(); // Başarılı ödemede zamanlayıcıyı iptal et
-                Future.delayed(Duration(milliseconds: 100), () {
-                  setState(() {
-                    sepet.clear();
-                    toplamTutar = 0.0;
-                    secilenKategori = null; // Kategoriler sayfasına dön
-                  });
-                  
-                  // Focus'u kart okuyucuya geri ver
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    _focusNode.requestFocus();
-                  });
-                });
-              } else {
-                // Refresh yoksa sadece focus ver
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _focusNode.requestFocus();
-                });
-              }
-            }
-          )
+              child: Text("Tamam", style: TextStyle(fontSize: 18)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              })
         ],
       ),
     );
+
+    if (!mounted) return;
+    if (refreshYap) {
+      _cancelCartTimer();
+      setState(() {
+        sepet.clear();
+        toplamTutar = 0.0;
+        secilenKategori = null;
+      });
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
   }
 
   // Bakiye sorgulama işlemi
   void _bakiyeSorgula(String kartID) {
     print("💰 _bakiyeSorgula çağrıldı: $kartID");
-    
+
     // Kart ID'sini temizle
     String temizKartID = '';
     for (int i = 0; i < kartID.length; i++) {
@@ -1617,11 +1721,11 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       }
     }
     print("🧹 Temizlenmiş ID: $temizKartID");
-    
+
     // Öğrenciyi bul
     final veriYoneticisi = VeriYoneticisi();
     final ogrenci = veriYoneticisi.ogrenciBul(temizKartID);
-    
+
     if (ogrenci != null) {
       print("✅ Öğrenci bulundu: ${ogrenci.adSoyad}, Bakiye: ${ogrenci.bakiye}");
       showDialog(
@@ -1640,9 +1744,11 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                 ),
               ),
               SizedBox(height: 20),
-              Text(ogrenci.adSoyad, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              Text(ogrenci.adSoyad,
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               SizedBox(height: 8),
-              Text(ogrenci.sinif, style: TextStyle(fontSize: 16, color: Colors.grey)),
+              Text(ogrenci.sinif,
+                  style: TextStyle(fontSize: 16, color: Colors.grey)),
               SizedBox(height: 20),
               Container(
                 padding: EdgeInsets.all(16),
@@ -1652,9 +1758,14 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                 ),
                 child: Column(
                   children: [
-                    Text("Mevcut Bakiye", style: TextStyle(fontSize: 16, color: Colors.grey)),
+                    Text("Mevcut Bakiye",
+                        style: TextStyle(fontSize: 16, color: Colors.grey)),
                     SizedBox(height: 8),
-                    Text("${ogrenci.bakiye.toStringAsFixed(2)} TL", style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.green)),
+                    Text("${ogrenci.bakiye.toStringAsFixed(2)} TL",
+                        style: TextStyle(
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green)),
                   ],
                 ),
               ),
@@ -1677,7 +1788,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
         context: context,
         builder: (context) => AlertDialog(
           title: Text("Tanımsız Kart", style: TextStyle(color: Colors.red)),
-          content: Text("Bu kart sisteme kayıtlı değil.\nKart ID: $temizKartID"),
+          content:
+              Text("Bu kart sisteme kayıtlı değil.\nKart ID: $temizKartID"),
           actions: [
             TextButton(
               child: Text("Tamam", style: TextStyle(fontSize: 18)),
@@ -1713,7 +1825,9 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
             } else {
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Hatalı şifre!'), backgroundColor: Colors.red),
+                SnackBar(
+                    content: Text('Hatalı şifre!'),
+                    backgroundColor: Colors.red),
               );
             }
           },
@@ -1732,7 +1846,9 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
               } else {
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Hatalı şifre!'), backgroundColor: Colors.red),
+                  SnackBar(
+                      content: Text('Hatalı şifre!'),
+                      backgroundColor: Colors.red),
                 );
               }
             },
@@ -1804,8 +1920,9 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
 
   // Ürün Grid (Seçili kategoriye göre)
   Widget _urunGrid() {
-    final filtreliUrunler = urunler.where((urun) => urun.kategori == secilenKategori).toList();
-    
+    final filtreliUrunler =
+        urunler.where((urun) => urun.kategori == secilenKategori).toList();
+
     if (filtreliUrunler.isEmpty) {
       return Center(
         child: Text(
@@ -1814,7 +1931,7 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
         ),
       );
     }
-    
+
     return GridView.builder(
       padding: EdgeInsets.all(16.0),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -1845,17 +1962,15 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
       onWillPop: () async => true,
       child: Scaffold(
         backgroundColor: Colors.grey[100],
-
         appBar: AppBar(
           toolbarHeight: 80, // AppBar yüksekliğini artır
           automaticallyImplyLeading: false, // Sol ok tuşunu kaldır
-          title: Text(
-            secilenKategori ?? 'Okul Otomat', 
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24)
-          ),
+          title: Text(secilenKategori ?? 'Okul Otomat',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24)),
           actions: [
             // Status Indicator & Refresh
-            Center( // Center to align vertically in AppBar
+            Center(
+              // Center to align vertically in AppBar
               child: Padding(
                 padding: const EdgeInsets.only(right: 8.0),
                 child: Container(
@@ -1876,17 +1991,19 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                         ),
                       ),
                       SizedBox(width: 8),
-                      Text(
-                        _statusMesaji, 
-                        style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)
-                      ),
+                      Text(_statusMesaji,
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold)),
                       SizedBox(width: 8),
                       InkWell(
                         onTap: () {
                           print("🔄 Kullanıcı verileri yeniliyor...");
                           _verileriYenile();
                         },
-                        child: Icon(Icons.refresh, size: 18, color: Colors.white),
+                        child:
+                            Icon(Icons.refresh, size: 18, color: Colors.white),
                       ),
                     ],
                   ),
@@ -1897,7 +2014,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
             // BÜYÜK GERİ DÖN butonu (sadece kategori seçiliyse)
             if (secilenKategori != null)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: ElevatedButton(
                   onPressed: () {
                     setState(() {
@@ -1919,7 +2037,8 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
                       SizedBox(width: 8),
                       Text(
                         'GERİ DÖN',
-                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 22, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
@@ -1928,144 +2047,169 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
           ],
           flexibleSpace: Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.indigo, Colors.indigo.shade700]),
+              gradient: LinearGradient(
+                  colors: [Colors.indigo, Colors.indigo.shade700]),
             ),
           ),
         ),
         body: Stack(
-        children: [
-          Column(
-            children: [
-              Expanded(
-                child: !_verilerYuklendi 
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Column(
+              children: [
+                Expanded(
+                  child: !_verilerYuklendi
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              CircularProgressIndicator(
+                                  color: Colors.indigo, strokeWidth: 5),
+                              SizedBox(height: 16),
+                              Text("Ürünler Yükleniyor...",
+                                  style: TextStyle(
+                                      color: Colors.indigo,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        )
+                      : AnimatedBuilder(
+                          animation: VeriYoneticisi(),
+                          builder: (context, child) {
+                            return secilenKategori == null
+                                ? _kategoriGrid()
+                                : _urunGrid();
+                          },
+                        ),
+                ),
+                Container(
+                  padding:
+                      EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(20)),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black12, blurRadius: 10)
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          CircularProgressIndicator(color: Colors.indigo, strokeWidth: 5),
-                          SizedBox(height: 16),
-                          Text("Ürünler Yükleniyor...", style: TextStyle(color: Colors.indigo, fontSize: 18, fontWeight: FontWeight.bold)),
+                          Text('TOPLAM:',
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          Text('${toplamTutar.toStringAsFixed(2)} TL',
+                              style: TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.indigo)),
                         ],
                       ),
-                    )
-                  : AnimatedBuilder(
-                      animation: VeriYoneticisi(),
-                      builder: (context, child) {
-                        return secilenKategori == null 
-                          ? _kategoriGrid() 
-                          : _urunGrid();
-                      },
-                    ),
-              ),
-              Container(
-                padding: EdgeInsets.symmetric(vertical: 15.0, horizontal: 20.0),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                  boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('TOPLAM:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                        Text('${toplamTutar.toStringAsFixed(2)} TL', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Colors.indigo)),
-                      ],
-                    ),
-                    SizedBox(height: 15),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 2,
-                          child: OutlinedButton.icon(
-                            onPressed: sepetiTemizle,
-                            icon: Icon(Icons.delete_outline),
-                            label: Text('Temizle'),
-                            style: OutlinedButton.styleFrom(minimumSize: Size(0, 50)),
-                          ),
-                        ),
-                        SizedBox(width: 10),
-                        Expanded(
-                          flex: 3,
-                          child: ElevatedButton.icon(
-                            icon: Icon(Icons.account_balance_wallet, color: Colors.white),
-                            label: Text(
-                              'BAKİYE SORGULA',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                            onPressed: _bakiyeSorgulaBaslat,
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: Size(0, 50),
-                              backgroundColor: Colors.green,
-                              foregroundColor: Colors.white,
+                      SizedBox(height: 15),
+                      Row(
+                        children: [
+                          Expanded(
+                            flex: 2,
+                            child: OutlinedButton.icon(
+                              onPressed: sepetiTemizle,
+                              icon: Icon(Icons.delete_outline),
+                              label: Text('Temizle'),
+                              style: OutlinedButton.styleFrom(
+                                  minimumSize: Size(0, 50)),
                             ),
                           ),
-                        ),
-                        SizedBox(width: 10),
-                        Expanded(
-                          flex: 3,
-                          child: ElevatedButton.icon(
-                            icon: Icon(Icons.credit_card, color: Colors.white),
-                            label: Text(
-                              'KART İLE ÖDE',
-                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                            ),
-                            onPressed: (toplamTutar > 0) ? _odemePenceresiniAc : null,
-                            style: ElevatedButton.styleFrom(
-                              minimumSize: Size(0, 50),
-                              backgroundColor: Colors.indigo,
-                              foregroundColor: Colors.white,
+                          SizedBox(width: 10),
+                          Expanded(
+                            flex: 3,
+                            child: ElevatedButton.icon(
+                              icon: Icon(Icons.account_balance_wallet,
+                                  color: Colors.white),
+                              label: Text(
+                                'BAKİYE SORGULA',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              onPressed: _bakiyeSorgulaBaslat,
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: Size(0, 50),
+                                backgroundColor: Colors.green,
+                                foregroundColor: Colors.white,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    )
-                  ],
+                          SizedBox(width: 10),
+                          Expanded(
+                            flex: 3,
+                            child: ElevatedButton.icon(
+                              icon:
+                                  Icon(Icons.credit_card, color: Colors.white),
+                              label: Text(
+                                'KART İLE ÖDE',
+                                style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold),
+                              ),
+                              onPressed: (toplamTutar > 0)
+                                  ? _odemePenceresiniAc
+                                  : null,
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: Size(0, 50),
+                                backgroundColor: Colors.indigo,
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    ],
+                  ),
                 ),
-              ),
-            ],
-          ),
-          // GİZLİ KART OKUYUCU - Ekranın dışında ama aktif
-          Positioned(
-            left: -1000,
-            top: -1000,
-            child: Container(
-              width: 1,
-              height: 1,
-              child: TextField(
-                controller: _kartOkuyucuController,
-                focusNode: _focusNode,
-                keyboardType: TextInputType.none, // Klavye açılmasın
-                // keyboardType: TextInputType.visiblePassword, 
-                autocorrect: false,
-                enableSuggestions: false,
-                autofocus: true,
-                showCursor: true, // Cursor görünsün ki odak var mı anlayalım
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  hintText: "Buraya Odaklan", // Debug için
-                  hintStyle: TextStyle(color: Colors.transparent),
+              ],
+            ),
+            // GİZLİ KART OKUYUCU - Ekranın dışında ama aktif
+            Positioned(
+              left: -1000,
+              top: -1000,
+              child: Container(
+                width: 1,
+                height: 1,
+                child: TextField(
+                  controller: _kartOkuyucuController,
+                  focusNode: _focusNode,
+                  keyboardType: TextInputType.none, // Klavye açılmasın
+                  // keyboardType: TextInputType.visiblePassword,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  autofocus: true,
+                  showCursor: true, // Cursor görünsün ki odak var mı anlayalım
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    hintText: "Buraya Odaklan", // Debug için
+                    hintStyle: TextStyle(color: Colors.transparent),
+                  ),
+                  onChanged: (val) {
+                    print("📝 TextField onChanged: $val");
+                  },
+                  onSubmitted: (val) {
+                    print("📩 TextField onSubmitted: $val");
+                    if (val.isNotEmpty) {
+                      _kartOkutuldu(val);
+                      _kartOkuyucuController.clear();
+                      // Focus'u koru
+                      Future.delayed(Duration(milliseconds: 100), () {
+                        _focusNode.requestFocus();
+                      });
+                    }
+                  },
                 ),
-                onChanged: (val) {
-                  print("📝 TextField onChanged: $val");
-                },
-                onSubmitted: (val) {
-                  print("📩 TextField onSubmitted: $val");
-                  if (val.isNotEmpty) {
-                    _kartOkutuldu(val);
-                    _kartOkuyucuController.clear();
-                    // Focus'u koru
-                    Future.delayed(Duration(milliseconds: 100), () {
-                      _focusNode.requestFocus();
-                    });
-                  }
-                },
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }
@@ -2126,27 +2270,31 @@ class UrunKarti extends StatelessWidget {
                       child: Opacity(
                         opacity: stokTukendi ? 0.4 : 1.0,
                         child: urun.resimYolu.startsWith('http')
-                          ? CachedNetworkImage(
-                              imageUrl: urun.resimYolu,
-                              fit: BoxFit.contain,
-                              placeholder: (context, url) => Center(child: CircularProgressIndicator(color: Colors.indigo)),
-                              errorWidget: (context, url, error) => Icon(
-                                Icons.image_not_supported,
-                                size: 60,
-                                color: Colors.grey[300],
-                              ),
-                            )
-                          : Image.asset(
-                              urun.resimYolu.isNotEmpty ? urun.resimYolu : 'assets/images/beypazarı.png',
-                              fit: BoxFit.contain,
-                              errorBuilder: (context, error, stackTrace) {
-                                return Icon(
+                            ? CachedNetworkImage(
+                                imageUrl: urun.resimYolu,
+                                fit: BoxFit.contain,
+                                placeholder: (context, url) => Center(
+                                    child: CircularProgressIndicator(
+                                        color: Colors.indigo)),
+                                errorWidget: (context, url, error) => Icon(
                                   Icons.image_not_supported,
                                   size: 60,
                                   color: Colors.grey[300],
-                                );
-                              },
-                            ),
+                                ),
+                              )
+                            : Image.asset(
+                                urun.resimYolu.isNotEmpty
+                                    ? urun.resimYolu
+                                    : 'assets/images/beypazarı.png',
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Icon(
+                                    Icons.image_not_supported,
+                                    size: 60,
+                                    color: Colors.grey[300],
+                                  );
+                                },
+                              ),
                       ),
                     ),
                   ),
@@ -2227,8 +2375,13 @@ class UrunKarti extends StatelessWidget {
                             ),
                           ),
                           IconButton(
-                            icon: Icon(Icons.add, color: Colors.indigo),
-                            onPressed: onEkle,
+                            icon: Icon(
+                              Icons.add,
+                              color: miktar >= urun.stok
+                                  ? Colors.grey
+                                  : Colors.indigo,
+                            ),
+                            onPressed: miktar >= urun.stok ? null : onEkle,
                           ),
                         ],
                       ),
@@ -2281,13 +2434,14 @@ class _OgrenciDetayEkraniState extends State<OgrenciDetayEkrani> {
   @override
   Widget build(BuildContext context) {
     final ogrenci = veriYoneticisi.ogrenciler[widget.ogrenci.kartID]!;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(ogrenci.adSoyad),
         flexibleSpace: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.indigo, Colors.indigo.shade700]),
+            gradient:
+                LinearGradient(colors: [Colors.indigo, Colors.indigo.shade700]),
           ),
         ),
       ),
@@ -2314,7 +2468,8 @@ class _OgrenciDetayEkraniState extends State<OgrenciDetayEkrani> {
                     SizedBox(height: 16),
                     Text(
                       ogrenci.adSoyad,
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                      style:
+                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                     Text(
                       'Sınıf: ${ogrenci.sinif}',
@@ -2372,34 +2527,43 @@ class _OgrenciDetayEkraniState extends State<OgrenciDetayEkrani> {
                   : ListView.builder(
                       itemCount: ogrenci.islemGecmisi.length,
                       itemBuilder: (context, index) {
-                        final islem = ogrenci.islemGecmisi.reversed.toList()[index];
+                        final islem =
+                            ogrenci.islemGecmisi.reversed.toList()[index];
                         final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
-                        
+
                         return Card(
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: islem.tutar > 0 ? Colors.green : Colors.red,
+                              backgroundColor:
+                                  islem.tutar > 0 ? Colors.green : Colors.red,
                               child: Icon(
-                                islem.tutar > 0 ? Icons.arrow_downward : Icons.arrow_upward,
+                                islem.tutar > 0
+                                    ? Icons.arrow_downward
+                                    : Icons.arrow_upward,
                                 color: Colors.white,
                                 size: 20,
                               ),
                             ),
-                            title: Text(islem.tip, style: TextStyle(fontSize: 14)),
+                            title:
+                                Text(islem.tip, style: TextStyle(fontSize: 14)),
                             subtitle: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   dateFormat.format(islem.tarih),
-                                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                                  style: TextStyle(
+                                      fontSize: 11, color: Colors.grey[600]),
                                 ),
-                                Text(islem.aciklama, style: TextStyle(fontSize: 12)),
-                                if (islem.urunler != null && islem.urunler!.isNotEmpty)
+                                Text(islem.aciklama,
+                                    style: TextStyle(fontSize: 12)),
+                                if (islem.urunler != null &&
+                                    islem.urunler!.isNotEmpty)
                                   Padding(
                                     padding: EdgeInsets.only(top: 4),
                                     child: Text(
                                       'Ürünler: ${islem.urunler!.join(", ")}',
-                                      style: TextStyle(fontSize: 11, color: Colors.indigo),
+                                      style: TextStyle(
+                                          fontSize: 11, color: Colors.indigo),
                                     ),
                                   ),
                               ],
@@ -2409,7 +2573,8 @@ class _OgrenciDetayEkraniState extends State<OgrenciDetayEkrani> {
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: islem.tutar > 0 ? Colors.green : Colors.red,
+                                color:
+                                    islem.tutar > 0 ? Colors.green : Colors.red,
                               ),
                             ),
                           ),
@@ -2455,15 +2620,24 @@ class _OgrenciDetayEkraniState extends State<OgrenciDetayEkrani> {
             onPressed: () async {
               final tutar = double.tryParse(tutarController.text);
               if (tutar != null && tutar > 0) {
-                await veriYoneticisi.bakiyeYukle(ogrenci.kartID, tutar);
-                Navigator.pop(context);
-                setState(() {});
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('${tutar.toStringAsFixed(2)} TL yüklendi!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                try {
+                  await veriYoneticisi.bakiyeYukle(ogrenci.kartID, tutar);
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('${tutar.toStringAsFixed(2)} TL yüklendi!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } on OdemeHatasi catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(e.mesaj), backgroundColor: Colors.red),
+                  );
+                }
               }
             },
           ),
@@ -2479,7 +2653,8 @@ class AdminPaneli extends StatefulWidget {
   State<AdminPaneli> createState() => _AdminPaneliState();
 }
 
-class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStateMixin {
+class _AdminPaneliState extends State<AdminPaneli>
+    with SingleTickerProviderStateMixin {
   final veriYoneticisi = VeriYoneticisi();
   Ogrenci? secilenOgrenci;
   late TabController _tabController;
@@ -2518,7 +2693,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
           title: Text('Admin Paneli'),
           flexibleSpace: Container(
             decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.indigo, Colors.indigo.shade700]),
+              gradient: LinearGradient(
+                  colors: [Colors.indigo, Colors.indigo.shade700]),
             ),
           ),
         ),
@@ -2537,7 +2713,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Admin Paneli', style: TextStyle(fontWeight: FontWeight.bold)),
+        title:
+            Text('Admin Paneli', style: TextStyle(fontWeight: FontWeight.bold)),
         bottom: TabBar(
           controller: _tabController,
           tabs: [
@@ -2547,7 +2724,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
         ),
         flexibleSpace: Container(
           decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.indigo, Colors.indigo.shade700]),
+            gradient:
+                LinearGradient(colors: [Colors.indigo, Colors.indigo.shade700]),
           ),
         ),
       ),
@@ -2564,7 +2742,7 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
   Widget _ogrenciYonetimi() {
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth > 600;
-    
+
     if (!isTablet) {
       // Telefon için - Tek sütun layout
       return Column(
@@ -2582,7 +2760,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                         Expanded(
                           child: Text(
                             'Öğrenciler',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                                fontSize: 18, fontWeight: FontWeight.bold),
                           ),
                         ),
                         IconButton(
@@ -2597,10 +2776,12 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                     child: ListView.builder(
                       itemCount: veriYoneticisi.ogrenciler.length,
                       itemBuilder: (context, index) {
-                        final ogrenci = veriYoneticisi.ogrenciler.values.toList()[index];
+                        final ogrenci =
+                            veriYoneticisi.ogrenciler.values.toList()[index];
                         final secili = secilenOgrenci?.kartID == ogrenci.kartID;
                         return Card(
-                          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          margin:
+                              EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           color: secili ? Colors.indigo[100] : Colors.white,
                           child: ListTile(
                             leading: CircleAvatar(
@@ -2612,7 +2793,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                             ),
                             title: Text(
                               ogrenci.adSoyad,
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 14),
                             ),
                             subtitle: Text(
                               '${ogrenci.sinif} • ${ogrenci.kartID}',
@@ -2623,7 +2805,9 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                               style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.bold,
-                                color: ogrenci.bakiye > 0 ? Colors.green : Colors.red,
+                                color: ogrenci.bakiye > 0
+                                    ? Colors.green
+                                    : Colors.red,
                               ),
                             ),
                             onTap: () {
@@ -2663,13 +2847,16 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                       children: [
                         Text(
                           secilenOgrenci!.adSoyad,
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold),
                         ),
                         Text(
                           '${secilenOgrenci!.bakiye.toStringAsFixed(2)} TL',
                           style: TextStyle(
                             fontSize: 14,
-                            color: secilenOgrenci!.bakiye > 0 ? Colors.green : Colors.red,
+                            color: secilenOgrenci!.bakiye > 0
+                                ? Colors.green
+                                : Colors.red,
                           ),
                         ),
                       ],
@@ -2690,7 +2877,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => OgrenciDetayEkrani(ogrenci: secilenOgrenci!),
+                          builder: (context) =>
+                              OgrenciDetayEkrani(ogrenci: secilenOgrenci!),
                         ),
                       ).then((_) => setState(() {}));
                     },
@@ -2707,93 +2895,99 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
         ],
       );
     }
-    
+
     // Tablet için - Yan yana layout (orijinal)
     return Row(
       children: [
-          // Sol taraf - Öğrenci listesi
-          Expanded(
-            flex: 1,
-            child: Container(
-              color: Colors.grey[200],
-              child: Column(
-                children: [
-                  Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Öğrenci Listesi',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
+        // Sol taraf - Öğrenci listesi
+        Expanded(
+          flex: 1,
+          child: Container(
+            color: Colors.grey[200],
+            child: Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Öğrenci Listesi',
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
                         ),
-                        IconButton(
-                          icon: Icon(Icons.person_add),
-                          onPressed: _yeniOgrenciEkle,
-                          tooltip: 'Yeni Öğrenci Ekle',
-                        ),
-                      ],
-                    ),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.person_add),
+                        onPressed: _yeniOgrenciEkle,
+                        tooltip: 'Yeni Öğrenci Ekle',
+                      ),
+                    ],
                   ),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: veriYoneticisi.ogrenciler.length,
-                      itemBuilder: (context, index) {
-                        final ogrenci = veriYoneticisi.ogrenciler.values.toList()[index];
-                        final secili = secilenOgrenci?.kartID == ogrenci.kartID;
-                        return Card(
-                          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          color: secili ? Colors.indigo[100] : Colors.white,
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.indigo,
-                              child: Text(
-                                ogrenci.adSoyad[0],
-                                style: TextStyle(color: Colors.white),
-                              ),
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: veriYoneticisi.ogrenciler.length,
+                    itemBuilder: (context, index) {
+                      final ogrenci =
+                          veriYoneticisi.ogrenciler.values.toList()[index];
+                      final secili = secilenOgrenci?.kartID == ogrenci.kartID;
+                      return Card(
+                        margin:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        color: secili ? Colors.indigo[100] : Colors.white,
+                        child: ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: Colors.indigo,
+                            child: Text(
+                              ogrenci.adSoyad[0],
+                              style: TextStyle(color: Colors.white),
                             ),
-                            title: Text(
-                              ogrenci.adSoyad,
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            subtitle: Text('${ogrenci.sinif} • Kart: ${ogrenci.kartID}'),
-                            trailing: Text(
-                              '${ogrenci.bakiye.toStringAsFixed(2)} TL',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: ogrenci.bakiye > 0 ? Colors.green : Colors.red,
-                              ),
-                            ),
-                            onTap: () {
-                              setState(() {
-                                secilenOgrenci = ogrenci;
-                              });
-                            },
                           ),
-                        );
-                      },
-                    ),
+                          title: Text(
+                            ogrenci.adSoyad,
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                              '${ogrenci.sinif} • Kart: ${ogrenci.kartID}'),
+                          trailing: Text(
+                            '${ogrenci.bakiye.toStringAsFixed(2)} TL',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: ogrenci.bakiye > 0
+                                  ? Colors.green
+                                  : Colors.red,
+                            ),
+                          ),
+                          onTap: () {
+                            setState(() {
+                              secilenOgrenci = ogrenci;
+                            });
+                          },
+                        ),
+                      );
+                    },
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          // Sağ taraf - Öğrenci detayları
-          Expanded(
-            flex: 2,
-            child: secilenOgrenci == null
-                ? Center(
-                    child: Text(
-                      'Bir öğrenci seçin',
-                      style: TextStyle(fontSize: 18, color: Colors.grey),
-                    ),
-                  )
-                : _ogrenciDetay(),
-          ),
-        ],
-      );
+        ),
+        // Sağ taraf - Öğrenci detayları
+        Expanded(
+          flex: 2,
+          child: secilenOgrenci == null
+              ? Center(
+                  child: Text(
+                    'Bir öğrenci seçin',
+                    style: TextStyle(fontSize: 18, color: Colors.grey),
+                  ),
+                )
+              : _ogrenciDetay(),
+        ),
+      ],
+    );
   }
 
   Widget _ogrenciDetay() {
@@ -2828,15 +3022,18 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                           children: [
                             Text(
                               ogrenci.adSoyad,
-                              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                              style: TextStyle(
+                                  fontSize: 24, fontWeight: FontWeight.bold),
                             ),
                             Text(
                               'Sınıf: ${ogrenci.sinif}',
-                              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                              style: TextStyle(
+                                  fontSize: 16, color: Colors.grey[600]),
                             ),
                             Text(
                               'Kart ID: ${ogrenci.kartID}',
-                              style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                              style: TextStyle(
+                                  fontSize: 14, color: Colors.grey[500]),
                             ),
                           ],
                         ),
@@ -2846,14 +3043,17 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                         children: [
                           Text(
                             'Bakiye',
-                            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                            style: TextStyle(
+                                fontSize: 14, color: Colors.grey[600]),
                           ),
                           Text(
                             '${ogrenci.bakiye.toStringAsFixed(2)} TL',
                             style: TextStyle(
                               fontSize: 32,
                               fontWeight: FontWeight.bold,
-                              color: ogrenci.bakiye > 0 ? Colors.green : Colors.red,
+                              color: ogrenci.bakiye > 0
+                                  ? Colors.green
+                                  : Colors.red,
                             ),
                           ),
                         ],
@@ -2898,15 +3098,19 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                 : ListView.builder(
                     itemCount: ogrenci.islemGecmisi.length,
                     itemBuilder: (context, index) {
-                      final islem = ogrenci.islemGecmisi.reversed.toList()[index];
+                      final islem =
+                          ogrenci.islemGecmisi.reversed.toList()[index];
                       final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
-                      
+
                       return Card(
                         child: ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: islem.tutar > 0 ? Colors.green : Colors.red,
+                            backgroundColor:
+                                islem.tutar > 0 ? Colors.green : Colors.red,
                             child: Icon(
-                              islem.tutar > 0 ? Icons.arrow_downward : Icons.arrow_upward,
+                              islem.tutar > 0
+                                  ? Icons.arrow_downward
+                                  : Icons.arrow_upward,
                               color: Colors.white,
                             ),
                           ),
@@ -2916,15 +3120,18 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                             children: [
                               Text(
                                 dateFormat.format(islem.tarih),
-                                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey[600]),
                               ),
                               Text(islem.aciklama),
-                              if (islem.urunler != null && islem.urunler!.isNotEmpty)
+                              if (islem.urunler != null &&
+                                  islem.urunler!.isNotEmpty)
                                 Padding(
                                   padding: EdgeInsets.only(top: 4),
                                   child: Text(
                                     'Ürünler: ${islem.urunler!.join(", ")}',
-                                    style: TextStyle(fontSize: 12, color: Colors.indigo),
+                                    style: TextStyle(
+                                        fontSize: 12, color: Colors.indigo),
                                   ),
                                 ),
                             ],
@@ -2934,7 +3141,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: islem.tutar > 0 ? Colors.green : Colors.red,
+                              color:
+                                  islem.tutar > 0 ? Colors.green : Colors.red,
                             ),
                           ),
                         ),
@@ -2980,15 +3188,25 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
             onPressed: () async {
               final tutar = double.tryParse(tutarController.text);
               if (tutar != null && tutar > 0) {
-                await veriYoneticisi.bakiyeYukle(ogrenci.kartID, tutar);
-                Navigator.pop(context);
-                setState(() {});
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('${tutar.toStringAsFixed(2)} TL başarıyla yüklendi!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                try {
+                  await veriYoneticisi.bakiyeYukle(ogrenci.kartID, tutar);
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                  setState(() {});
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                          '${tutar.toStringAsFixed(2)} TL başarıyla yüklendi!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } on OdemeHatasi catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                        content: Text(e.mesaj), backgroundColor: Colors.red),
+                  );
+                }
               }
             },
           ),
@@ -3085,14 +3303,14 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
   Widget _istatistikler() {
     final screenWidth = MediaQuery.of(context).size.width;
     final isTablet = screenWidth > 600;
-    
+
     // Ürün satış verilerini sırala (en çok satandan en aza)
     var siraliUrunler = veriYoneticisi.urunSatislari.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
-    
+
     // En çok satan 5 ürünü al
     var top5 = siraliUrunler.take(5).toList();
-    
+
     if (top5.isEmpty) {
       return Center(
         child: Column(
@@ -3111,21 +3329,23 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
 
     return Padding(
       padding: EdgeInsets.all(isTablet ? 24 : 12),
-      child: isTablet ? Row(
-        children: [
-          // Tablet - Yan yana
-          _buildGrafikWidget(top5, isTablet),
-          SizedBox(width: 20),
-          _buildDetayWidget(top5, isTablet),
-        ],
-      ) : Column(
-        children: [
-          // Telefon - Alt alta
-          Expanded(child: _buildGrafikWidget(top5, isTablet)),
-          SizedBox(height: 12),
-          Expanded(child: _buildDetayWidget(top5, isTablet)),
-        ],
-      ),
+      child: isTablet
+          ? Row(
+              children: [
+                // Tablet - Yan yana
+                _buildGrafikWidget(top5, isTablet),
+                SizedBox(width: 20),
+                _buildDetayWidget(top5, isTablet),
+              ],
+            )
+          : Column(
+              children: [
+                // Telefon - Alt alta
+                Expanded(child: _buildGrafikWidget(top5, isTablet)),
+                SizedBox(height: 12),
+                Expanded(child: _buildDetayWidget(top5, isTablet)),
+              ],
+            ),
     );
   }
 
@@ -3141,95 +3361,102 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
             children: [
               Text(
                 'En Çok Satan Ürünler',
-                style: TextStyle(fontSize: isTablet ? 24 : 18, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    fontSize: isTablet ? 24 : 18, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 10),
               Text(
                 'Bu ayki satış istatistikleri',
-                style: TextStyle(fontSize: isTablet ? 14 : 12, color: Colors.grey[600]),
+                style: TextStyle(
+                    fontSize: isTablet ? 14 : 12, color: Colors.grey[600]),
               ),
               SizedBox(height: isTablet ? 30 : 20),
               Expanded(
-                      child: BarChart(
-                        BarChartData(
-                          alignment: BarChartAlignment.spaceAround,
-                          maxY: (top5.first.value * 1.2).toDouble(),
-                          barTouchData: BarTouchData(
-                            enabled: true,
-                            touchTooltipData: BarTouchTooltipData(
-                              getTooltipItem: (group, groupIndex, rod, rodIndex) {
-                                return BarTooltipItem(
-                                  '${top5[group.x.toInt()].key}\n${top5[group.x.toInt()].value} satış',
-                                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                );
-                              },
-                            ),
-                          ),
-                          titlesData: FlTitlesData(
-                            show: true,
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                getTitlesWidget: (value, meta) {
-                                  if (value.toInt() >= 0 && value.toInt() < top5.length) {
-                                    String urunIsmi = top5[value.toInt()].key;
-                                    // Uzun isimleri kısalt
-                                    if (urunIsmi.length > 15) {
-                                      urunIsmi = urunIsmi.substring(0, 15) + '...';
-                                    }
-                                    return Padding(
-                                      padding: EdgeInsets.only(top: 8),
-                                      child: Text(
-                                        urunIsmi,
-                                        style: TextStyle(fontSize: 10),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    );
-                                  }
-                                  return Text('');
-                                },
-                              ),
-                            ),
-                            leftTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                reservedSize: 40,
-                                getTitlesWidget: (value, meta) {
-                                  return Text(
-                                    value.toInt().toString(),
-                                    style: TextStyle(fontSize: 12),
-                                  );
-                                },
-                              ),
-                            ),
-                            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          ),
-                          borderData: FlBorderData(show: false),
-                          barGroups: top5.asMap().entries.map((entry) {
-                            return BarChartGroupData(
-                              x: entry.key,
-                              barRods: [
-                                BarChartRodData(
-                                  toY: entry.value.value.toDouble(),
-                                  color: Colors.indigo,
-                                  width: 40,
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: Radius.circular(6),
-                                    topRight: Radius.circular(6),
-                                  ),
-                                ),
-                              ],
-                            );
-                          }).toList(),
-                        ),
+                child: BarChart(
+                  BarChartData(
+                    alignment: BarChartAlignment.spaceAround,
+                    maxY: (top5.first.value * 1.2).toDouble(),
+                    barTouchData: BarTouchData(
+                      enabled: true,
+                      touchTooltipData: BarTouchTooltipData(
+                        getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                          return BarTooltipItem(
+                            '${top5[group.x.toInt()].key}\n${top5[group.x.toInt()].value} satış',
+                            TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold),
+                          );
+                        },
                       ),
                     ),
-                  ],
+                    titlesData: FlTitlesData(
+                      show: true,
+                      bottomTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          getTitlesWidget: (value, meta) {
+                            if (value.toInt() >= 0 &&
+                                value.toInt() < top5.length) {
+                              String urunIsmi = top5[value.toInt()].key;
+                              // Uzun isimleri kısalt
+                              if (urunIsmi.length > 15) {
+                                urunIsmi = urunIsmi.substring(0, 15) + '...';
+                              }
+                              return Padding(
+                                padding: EdgeInsets.only(top: 8),
+                                child: Text(
+                                  urunIsmi,
+                                  style: TextStyle(fontSize: 10),
+                                  textAlign: TextAlign.center,
+                                ),
+                              );
+                            }
+                            return Text('');
+                          },
+                        ),
+                      ),
+                      leftTitles: AxisTitles(
+                        sideTitles: SideTitles(
+                          showTitles: true,
+                          reservedSize: 40,
+                          getTitlesWidget: (value, meta) {
+                            return Text(
+                              value.toInt().toString(),
+                              style: TextStyle(fontSize: 12),
+                            );
+                          },
+                        ),
+                      ),
+                      topTitles:
+                          AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                      rightTitles:
+                          AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    ),
+                    borderData: FlBorderData(show: false),
+                    barGroups: top5.asMap().entries.map((entry) {
+                      return BarChartGroupData(
+                        x: entry.key,
+                        barRods: [
+                          BarChartRodData(
+                            toY: entry.value.value.toDouble(),
+                            color: Colors.indigo,
+                            width: 40,
+                            borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(6),
+                              topRight: Radius.circular(6),
+                            ),
+                          ),
+                        ],
+                      );
+                    }).toList(),
+                  ),
                 ),
               ),
-            ),
-          );
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildDetayWidget(List<MapEntry<String, int>> top5, bool isTablet) {
@@ -3244,7 +3471,8 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
             children: [
               Text(
                 'Satış Detayları',
-                style: TextStyle(fontSize: isTablet ? 20 : 16, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    fontSize: isTablet ? 20 : 16, fontWeight: FontWeight.bold),
               ),
               SizedBox(height: isTablet ? 20 : 12),
               Expanded(
@@ -3259,12 +3487,17 @@ class _AdminPaneliState extends State<AdminPaneli> with SingleTickerProviderStat
                           backgroundColor: Colors.indigo,
                           child: Text(
                             '${index + 1}',
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: isTablet ? 16 : 14),
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: isTablet ? 16 : 14),
                           ),
                         ),
                         title: Text(
                           urun.key,
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: isTablet ? 16 : 14),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: isTablet ? 16 : 14),
                         ),
                         trailing: Text(
                           '${urun.value} adet',

@@ -17,7 +17,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { formatPhoneEmail } from './auth';
-import { Ogrenci, Veli, Islem, KartUcreti } from '@/types';
+import { Ogrenci, Veli, Islem, KartUcreti, UrunKalemi, isHarcama } from '@/types';
 import { Timestamp } from 'firebase/firestore';
 
 // NOTE: Creating Auth users requires Firebase Admin SDK or Cloud Functions if running from Client.
@@ -702,10 +702,16 @@ export async function cancelIslem(
 ): Promise<{ success: boolean; error?: string }> {
     try {
         const studentRef = doc(db, 'ogrenciler', studentId);
+        const personnelRef = doc(db, 'personeller', studentId);
 
         await runTransaction(db, async (tx) => {
-            const snap = await tx.get(studentRef);
-            if (!snap.exists()) throw new Error('Öğrenci bulunamadı.');
+            const [studentSnap, personnelSnap] = await Promise.all([
+                tx.get(studentRef),
+                tx.get(personnelRef),
+            ]);
+            const snap = studentSnap.exists() ? studentSnap : personnelSnap;
+            const accountRef = studentSnap.exists() ? studentRef : personnelRef;
+            if (!snap.exists()) throw new Error('Öğrenci/personel bulunamadı.');
 
             const data = snap.data();
             const islemler: Islem[] = data.islemGecmisi || [];
@@ -714,20 +720,83 @@ export async function cancelIslem(
             if (!islem) throw new Error('İşlem bulunamadı.');
             if (islem.isCancelled) throw new Error('Bu işlem zaten iptal edilmiş.');
 
-            // Mark cancelled
+            const harcama = isHarcama(islem.tip, islem.tutar);
+            const lines = harcama ? (islem.urunler ?? []) : [];
+            if (harcama && lines.length > 0 && lines.some(line => typeof line === 'string')) {
+                throw new Error(
+                    'Eski metin formatındaki satışın stoğu güvenle belirlenemiyor. '
+                    + 'Muhasebe tutarlılığı için otomatik iptal durduruldu.'
+                );
+            }
+
+            const consolidated = new Map<string, UrunKalemi>();
+            for (const raw of lines) {
+                if (typeof raw === 'string') continue;
+                const line = raw as UrunKalemi;
+                if (!line.id || !Number.isSafeInteger(line.miktar) || line.miktar <= 0) {
+                    throw new Error('Satış kaleminde geçersiz ürün ID/miktarı var; iptal durduruldu.');
+                }
+                const existing = consolidated.get(line.id);
+                consolidated.set(line.id, {
+                    ...line,
+                    miktar: (existing?.miktar ?? 0) + line.miktar,
+                });
+            }
+
+            // Bütün stok okumaları herhangi bir yazmadan önce yapılır.
+            const productEntries = [...consolidated.entries()];
+            const productSnaps = await Promise.all(
+                productEntries.map(([productId]) => tx.get(doc(db, 'urunler', productId)))
+            );
+            productSnaps.forEach((productSnap, index) => {
+                if (!productSnap.exists()) {
+                    throw new Error(`İptal stoğu için ürün bulunamadı: ${productEntries[index][1].ad}`);
+                }
+            });
+
             const updated = islemler.map((item, idx) =>
                 idx === islemIndex ? { ...item, isCancelled: true } : item
             );
+            // Pozitif kaydedilen Harcama/Ödeme iade edilir; yükleme geri alınır.
+            const balanceDelta = harcama ? Math.abs(islem.tutar) : -Math.abs(islem.tutar);
 
-            // Balance adjustment: reverse the original effect
-            // Deposit (+tutar) → subtract tutar
-            // Expense (−tutar or tip Ödeme/Harcama) → add abs(tutar)
-            const originalTutar = islem.tutar;
-            const balanceDelta = -originalTutar; // simply negate it
-
-            tx.update(studentRef, {
+            tx.update(accountRef, {
                 islemGecmisi: updated,
                 bakiye: increment(balanceDelta)
+            });
+
+            productEntries.forEach(([productId, line], index) => {
+                const productSnap = productSnaps[index];
+                const productData = productSnap.data()!;
+                const eskiStok = Number(productData.stok ?? 0);
+                const yeniStok = eskiStok + line.miktar;
+                const productRef = doc(db, 'urunler', productId);
+                tx.update(productRef, { stok: yeniStok });
+                tx.set(doc(db, 'stok_hareketleri', `iptal_${studentId}_${islemIndex}_${productId}`), {
+                    urunId: productId,
+                    urunAdi: productData.ad ?? line.ad,
+                    miktarDegisimi: line.miktar,
+                    eskiStok,
+                    yeniStok,
+                    tarih: Timestamp.now(),
+                    islemTipi: 'Satış İptali',
+                    islemYapan: 'Sistem Yöneticisi',
+                    referansId: islem.satisId ?? `${studentId}_${islemIndex}`,
+                });
+            });
+
+            tx.set(doc(db, 'islem_iptalleri', `${studentId}_${islemIndex}`), {
+                hesapId: studentId,
+                hesapTuru: studentSnap.exists() ? 'ogrenci' : 'personel',
+                islemIndex,
+                satisId: islem.satisId ?? null,
+                bakiyeDegisimi: balanceDelta,
+                stokIadesi: productEntries.map(([productId, line]) => ({
+                    urunId: productId,
+                    miktar: line.miktar,
+                })),
+                tarih: Timestamp.now(),
+                islemYapan: 'Sistem Yöneticisi',
             });
         });
 

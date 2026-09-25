@@ -144,7 +144,19 @@ interface EditValues {
     fiyat: number;
 }
 
-type Tab = 'stok' | 'kasa' | 'pnl' | 'defteri';
+type Tab = 'stok' | 'kasa' | 'pnl' | 'defteri' | 'mutabakat';
+
+interface OfflineMutabakat {
+    id: string;
+    satisId: string;
+    ogrenciAdi?: string;
+    kartID?: string;
+    toplamTutar: number;
+    hata?: string;
+    yerelTarih?: string;
+    bildirimTarihi?: Timestamp | { seconds: number };
+    urunler?: Array<{ ad: string; miktar: number }>;
+}
 
 // ────────────────────────────────────────────────────────────────
 // Main Page
@@ -195,6 +207,8 @@ export default function FinansPage() {
     const [stokHareketleri, setStokHareketleri] = useState<StokHareketi[]>([]);
     const [loadingLedger, setLoadingLedger] = useState(false);
     const [ledgerSearch, setLedgerSearch] = useState('');
+    const [mutabakatlar, setMutabakatlar] = useState<OfflineMutabakat[]>([]);
+    const [loadingMutabakat, setLoadingMutabakat] = useState(true);
 
     // ── Admin identity for audit trail ───────────────────────────
     const [adminAdSoyad, setAdminAdSoyad] = useState('Sistem Yöneticisi');
@@ -249,6 +263,19 @@ export default function FinansPage() {
         return () => unsub();
     }, [activeTab]);
 
+    // Offline POS çakışmaları muhasebeden gizlenmez; gerçek zamanlı gösterilir.
+    useEffect(() => {
+        const q = query(collection(db, 'offline_mutabakatlar'), orderBy('bildirimTarihi', 'desc'));
+        const unsub = onSnapshot(q, snap => {
+            setMutabakatlar(snap.docs.map(d => ({ id: d.id, ...d.data() } as OfflineMutabakat)));
+            setLoadingMutabakat(false);
+        }, error => {
+            console.error('Offline mutabakat listener error:', error);
+            setLoadingMutabakat(false);
+        });
+        return () => unsub();
+    }, []);
+
 
     useEffect(() => {
         if (activeTab === 'pnl' && !pnlFetched) {
@@ -296,13 +323,23 @@ export default function FinansPage() {
         try {
             if (field === 'stok') {
                 // Ledger transaction: reads current stock, diffs, writes audit record
-                await updateStockWithLedger(productId, newValue, adminAdSoyad);
+                const result = await updateStockWithLedger(productId, newValue, adminAdSoyad);
+                if (!result.success) throw new Error(result.error);
             } else {
                 // Maliyet / fiyat: simple update, no ledger needed
-                await updateProduct(productId, { [field]: newValue });
+                const result = await updateProduct(productId, { [field]: newValue });
+                if (!result.success) throw new Error(result.error);
             }
         } catch (err) {
             console.error('Inline edit save error:', err);
+            const fresh = await getProducts();
+            setProducts(fresh);
+            setEditValues(Object.fromEntries(fresh.map(p => [p.id, {
+                stok: p.stok ?? 0,
+                maliyet: p.maliyet ?? 0,
+                fiyat: p.fiyat ?? 0,
+            }])));
+            alert(err instanceof Error ? err.message : 'Değişiklik kaydedilemedi.');
         } finally {
             setSavingIds(prev => {
                 const next = new Set(prev);
@@ -525,6 +562,16 @@ export default function FinansPage() {
                             }`}
                         >
                             📋 Stok Defteri
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('mutabakat')}
+                            className={`rounded-lg px-5 py-2 text-sm font-semibold transition-all ${
+                                activeTab === 'mutabakat'
+                                    ? 'bg-white text-red-700 shadow dark:bg-slate-700 dark:text-red-300'
+                                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            ⚠️ Offline Mutabakat{mutabakatlar.length > 0 ? ` (${mutabakatlar.length})` : ''}
                         </button>
                     </div>
 
@@ -1308,6 +1355,47 @@ export default function FinansPage() {
                                         </div>
                                     );
                                 })()}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'mutabakat' && (
+                        <div className="space-y-4">
+                            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-800 dark:bg-amber-950/30">
+                                <h2 className="font-bold text-amber-900 dark:text-amber-200">Offline satış mutabakatı</h2>
+                                <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
+                                    Bu liste, ürün teslim edildikten sonra sunucu stok veya bakiye çakışması nedeniyle otomatik işlenemeyen satışları gösterir. Kayıtlar silinmez.
+                                </p>
+                            </div>
+                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                                {loadingMutabakat ? (
+                                    <div className="flex h-40 items-center justify-center"><div className="h-9 w-9 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" /></div>
+                                ) : mutabakatlar.length === 0 ? (
+                                    <div className="py-16 text-center text-sm text-slate-400">Mutabakat bekleyen offline satış yok.</div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
+                                            <thead className="bg-slate-50 dark:bg-slate-800"><tr>
+                                                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Satış / Tarih</th>
+                                                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Hesap</th>
+                                                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Ürünler</th>
+                                                <th className="px-5 py-3 text-right text-xs font-semibold text-slate-500">Tutar</th>
+                                                <th className="px-5 py-3 text-left text-xs font-semibold text-slate-500">Sunucu sonucu</th>
+                                            </tr></thead>
+                                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                {mutabakatlar.map(m => (
+                                                    <tr key={m.id}>
+                                                        <td className="px-5 py-3 text-xs text-slate-500"><div className="font-mono">{m.satisId}</div><div>{m.yerelTarih ? new Date(m.yerelTarih).toLocaleString('tr-TR') : '-'}</div></td>
+                                                        <td className="px-5 py-3 text-sm text-slate-700 dark:text-slate-200"><div className="font-medium">{m.ogrenciAdi ?? '-'}</div><div className="text-xs text-slate-400">{m.kartID ?? '-'}</div></td>
+                                                        <td className="px-5 py-3 text-sm text-slate-600 dark:text-slate-300">{m.urunler?.map(u => `${u.ad} (x${u.miktar})`).join(', ') || '-'}</td>
+                                                        <td className="px-5 py-3 text-right font-bold text-slate-800 dark:text-white">{fmt(Number(m.toplamTutar ?? 0))}</td>
+                                                        <td className="px-5 py-3 text-sm text-red-600 dark:text-red-400">{m.hata ?? 'Mutabakat gerekli'}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

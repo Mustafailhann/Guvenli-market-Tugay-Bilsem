@@ -16,6 +16,18 @@ import { Urun, StokHareketi, StokIslemTipi } from '@/types';
 
 const COLLECTION_NAME = 'urunler';
 
+function assertValidMoney(value: number | undefined, field: string) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+        throw new Error(`${field} sıfır veya pozitif bir sayı olmalıdır.`);
+    }
+}
+
+function assertValidStock(value: number) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+        throw new Error('Stok sıfır veya pozitif tam sayı olmalıdır.');
+    }
+}
+
 export async function uploadProductImage(file: File): Promise<string | null> {
     try {
         const { compressImage } = await import('./imageUtils');
@@ -45,6 +57,9 @@ export async function getProducts(): Promise<Urun[]> {
 
 export async function addProduct(data: Omit<Urun, 'id' | 'olusturmaTarihi'>) {
     try {
+        assertValidStock(data.stok);
+        assertValidMoney(data.fiyat, 'Fiyat');
+        assertValidMoney(data.maliyet, 'Maliyet');
         const docRef = await addDoc(collection(db, COLLECTION_NAME), {
             ...data,
             olusturmaTarihi: Timestamp.now()
@@ -58,6 +73,11 @@ export async function addProduct(data: Omit<Urun, 'id' | 'olusturmaTarihi'>) {
 
 export async function updateProduct(id: string, data: Partial<Urun>) {
     try {
+        if (data.stok !== undefined) {
+            throw new Error('Stok doğrudan güncellenemez; stok defteri işlemi kullanılmalıdır.');
+        }
+        assertValidMoney(data.fiyat, 'Fiyat');
+        assertValidMoney(data.maliyet, 'Maliyet');
         const docRef = doc(db, COLLECTION_NAME, id);
         await updateDoc(docRef, data);
         return { success: true };
@@ -88,6 +108,7 @@ export async function updateStockWithLedger(
     islemYapan: string = 'Sistem Yöneticisi'
 ) {
     try {
+        assertValidStock(newStok);
         const productRef = doc(db, COLLECTION_NAME, productId);
         const ledgerRef = collection(db, 'stok_hareketleri');
 
@@ -126,6 +147,49 @@ export async function updateStockWithLedger(
         return { success: true };
     } catch (error: any) {
         console.error('Stock ledger update error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/** Ürün formundaki alanları ve stok farkını tek transaction'da kaydeder. */
+export async function updateProductWithStockLedger(
+    productId: string,
+    data: Partial<Urun>,
+    islemYapan: string = 'Sistem Yöneticisi'
+) {
+    try {
+        if (data.stok === undefined) throw new Error('Yeni stok değeri eksik.');
+        assertValidStock(data.stok);
+        assertValidMoney(data.fiyat, 'Fiyat');
+        assertValidMoney(data.maliyet, 'Maliyet');
+
+        const productRef = doc(db, COLLECTION_NAME, productId);
+        await runTransaction(db, async transaction => {
+            const productSnap = await transaction.get(productRef);
+            if (!productSnap.exists()) throw new Error('Güncellenecek ürün bulunamadı.');
+
+            const current = productSnap.data() as Urun;
+            const eskiStok = current.stok ?? 0;
+            const yeniStok = data.stok!;
+            const diff = yeniStok - eskiStok;
+            transaction.update(productRef, data);
+
+            if (diff !== 0) {
+                transaction.set(doc(collection(db, 'stok_hareketleri')), {
+                    urunId: productId,
+                    urunAdi: data.ad ?? current.ad,
+                    miktarDegisimi: diff,
+                    eskiStok,
+                    yeniStok,
+                    tarih: serverTimestamp(),
+                    islemTipi: diff > 0 ? 'Stok Ekleme / Giriş' : 'Stok Düzeltme / Çıkış',
+                    islemYapan,
+                });
+            }
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error('Product + stock ledger update error:', error);
         return { success: false, error: error.message };
     }
 }

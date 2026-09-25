@@ -1,0 +1,143 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.admin == true ||
+        (exists(/databases/$(database)/documents/veliler/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/veliler/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isPos() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/pos_cihazlari/$(request.auth.uid))
+        && get(/databases/$(database)/documents/pos_cihazlari/$(request.auth.uid)).data.aktif == true;
+    }
+
+    match /pos_cihazlari/{uid} {
+      allow read, write: if isAdmin();
+      allow read: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /veliler/{veliId} {
+      allow read, write: if isAdmin();
+      allow read: if signedIn() && (request.auth.uid == veliId || resource.data.authID == request.auth.uid);
+      allow update: if signedIn()
+        && resource.data.authID == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['adSoyad', 'telefonNo', 'email', 'sifreDegistirmeZorunlu']);
+    }
+
+    match /ogrenciler/{hesapId} {
+      allow read, write: if isAdmin();
+      allow read: if isPos();
+      allow update: if isPos()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['bakiye', 'islemGecmisi']);
+      allow read: if signedIn() && request.auth.uid in resource.data.veliIDleri;
+    }
+
+    match /personeller/{hesapId} {
+      allow read, write: if isAdmin();
+      allow read: if isPos();
+      allow update: if isPos()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['bakiye', 'islemGecmisi']);
+    }
+
+    match /urunler/{urunId} {
+      allow read, write: if isAdmin();
+      allow read: if isPos();
+      allow update: if isPos()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stok'])
+        && request.resource.data.stok is int
+        && request.resource.data.stok >= 0
+        && request.resource.data.stok < resource.data.stok;
+    }
+
+    match /satislar/{satisId} {
+      allow read: if isAdmin();
+      // Transaction, idempotency belgesini oluşturmadan önce get() yapar.
+      // get izni POS'a açık, koleksiyon listeleme yalnızca admine açıktır.
+      allow get: if isPos();
+      allow list: if isAdmin();
+      allow create: if isPos()
+        && request.resource.data.satisId == satisId
+        && request.resource.data.posUid == request.auth.uid
+        && request.resource.data.durum == 'tamamlandi'
+        && request.resource.data.keys().hasAll([
+          'satisId', 'ogrenciId', 'urunler', 'toplamTutar', 'toplamMaliyet',
+          'oncekiBakiye', 'yeniBakiye', 'tarih', 'durum', 'posUid'
+        ])
+        && request.resource.data.toplamTutar >= 0
+        && request.resource.data.toplamMaliyet >= 0;
+      allow update, delete: if false;
+    }
+
+    match /bakiye_islemleri/{islemId} {
+      allow read: if isAdmin();
+      allow get: if isPos();
+      allow list: if isAdmin();
+      allow create: if isPos()
+        && request.resource.data.islemId == islemId
+        && request.resource.data.posUid == request.auth.uid
+        && request.resource.data.tutar > 0;
+      allow update, delete: if false;
+    }
+
+    match /offline_mutabakatlar/{satisId} {
+      allow read: if isAdmin();
+      allow get: if isPos();
+      allow list: if isAdmin();
+      allow create: if isPos()
+        && request.resource.data.satisId == satisId
+        && request.resource.data.posUid == request.auth.uid
+        && request.resource.data.durum == 'mutabakat_gerekli';
+      allow update, delete: if false;
+    }
+
+    match /stok_hareketleri/{hareketId} {
+      allow read, create: if isAdmin();
+      allow create: if isPos()
+        && request.resource.data.posUid == request.auth.uid
+        && request.resource.data.islemTipi == 'Satış'
+        && request.resource.data.miktarDegisimi is int
+        && request.resource.data.miktarDegisimi < 0
+        && request.resource.data.yeniStok >= 0
+        && request.resource.data.referansId is string;
+      allow update, delete: if false;
+    }
+
+    match /islem_iptalleri/{iptalId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /kasa_giderleri/{giderId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /istatistikler/{docId} {
+      allow read, write: if isAdmin();
+      allow read, create, update: if isPos() && docId == 'urunSatislari';
+    }
+
+    match /cocukTalepleri/{talepId} {
+      allow read, write: if isAdmin();
+      allow create: if signedIn() && request.resource.data.veliID == request.auth.uid;
+      allow read: if signedIn() && resource.data.veliID == request.auth.uid;
+    }
+
+    match /app_settings/{docId} {
+      allow read, write: if isAdmin();
+      allow read: if isPos();
+    }
+  }
+}

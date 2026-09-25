@@ -65,6 +65,7 @@ export interface UrunKalemi {
 }
 
 export interface Islem {
+    satisId?: string;
     tarih: Timestamp;
     tip: 'Bakiye Yükleme' | 'Ödeme' | 'Harcama';
     tutar: number;
@@ -103,7 +104,11 @@ export interface Urun {
 // ─────────────────────────────────────────────────────────────────────
 // Stock Ledger — every manual stock change is logged here
 // ─────────────────────────────────────────────────────────────────────
-export type StokIslemTipi = 'Stok Ekleme / Giriş' | 'Stok Düzeltme / Çıkış';
+export type StokIslemTipi =
+    | 'Stok Ekleme / Giriş'
+    | 'Stok Düzeltme / Çıkış'
+    | 'Satış'
+    | 'Satış İptali';
 
 export interface StokHareketi {
     id: string;                 // Firestore Document ID
@@ -115,4 +120,6 @@ export interface StokHareketi {
     tarih: Timestamp;           // Server timestamp of the operation
     islemTipi: StokIslemTipi;   // 'Stok Ekleme / Giriş' | 'Stok Düzeltme / Çıkış'
     islemYapan: string;         // Admin display name — defaults to 'Sistem Yöneticisi'
+    referansId?: string;
+    posUid?: string;
 }

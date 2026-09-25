@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getProducts, addProduct, updateProduct, deleteProduct, uploadProductImage } from '@/lib/products';
+import { getProducts, addProduct, updateProductWithStockLedger, deleteProduct, uploadProductImage } from '@/lib/products';
 import { Urun } from '@/types';
 import * as XLSX from 'xlsx';
 
@@ -102,9 +102,11 @@ export default function ProductsPage() {
             };
 
             if (editingProduct) {
-                await updateProduct(editingProduct.id, productData);
+                const result = await updateProductWithStockLedger(editingProduct.id, productData);
+                if (!result.success) throw new Error(result.error);
             } else {
-                await addProduct(productData);
+                const result = await addProduct(productData);
+                if (!result.success) throw new Error(result.error);
             }
 
             setIsModalOpen(false);

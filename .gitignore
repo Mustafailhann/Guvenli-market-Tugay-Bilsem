@@ -30,6 +30,14 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+.codex-tools/
+**/Flutter/ephemeral/
+.windows-build-disabled/
+*.tsbuildinfo
+.env
+.env.*
+*.pem
+*service-account*.json
 
 # Symbolication related
 app.*.symbols
@@ -41,6 +49,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+/android/build/
 
 *.zip
 build*.txt
