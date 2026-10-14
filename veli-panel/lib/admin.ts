@@ -92,6 +92,7 @@ export async function adminAddStudent(
                 batch.set(newParentRef, {
                     veliID: parentId,
                     telefonNo: phone,
+                    authEmail: formatPhoneEmail(phone.replace(/\D/g, '')),
                     adSoyad: parent.name || '',
                     aktif: true,
                     sifreDegistirmeZorunlu: true,
@@ -132,7 +133,8 @@ export async function adminUpdateParentPhone(veliId: string, newPhone: string) {
 
         // For now, update Firestore.
         await updateDoc(doc(db, 'veliler', veliId), {
-            telefonNo: newPhone
+            telefonNo: newPhone,
+            authEmail: formatPhoneEmail(newPhone.replace(/\D/g, ''))
         });
 
         // Also update all linked students
@@ -284,7 +286,8 @@ export async function createParent(data: Partial<Veli>) {
             aktif: true,
             sifreDegistirmeZorunlu: true, // Default for new admin-created users
             kayitTarihi: Timestamp.now(),
-            ...data
+            ...data,
+            authEmail: formatPhoneEmail((data.telefonNo || '').replace(/\D/g, ''))
         } as Veli;
 
         await batchInit().set(newRef, newVeli).commit();
@@ -296,7 +299,9 @@ export async function createParent(data: Partial<Veli>) {
 
 export async function updateParent(veliID: string, data: Partial<Veli>) {
     try {
-        await updateDoc(doc(db, 'veliler', veliID), data);
+        await updateDoc(doc(db, 'veliler', veliID), data.telefonNo
+            ? { ...data, authEmail: formatPhoneEmail(data.telefonNo.replace(/\D/g, '')) }
+            : data);
         return { success: true };
     } catch (error: any) {
         return { success: false, error: error.message };
@@ -482,7 +487,8 @@ export async function updateStudentWithParents(
                 const parentRef = doc(db, 'veliler', parent.veliID);
                 batch.update(parentRef, {
                     adSoyad: parent.name || '',
-                    telefonNo: phone
+                    telefonNo: phone,
+                    authEmail: formatPhoneEmail(phone.replace(/\D/g, ''))
                 });
                 parentIds.push(parent.veliID);
             } else {
@@ -504,6 +510,7 @@ export async function updateStudentWithParents(
                     batch.set(newParentRef, {
                         veliID: newParentRef.id,
                         telefonNo: phone,
+                        authEmail: formatPhoneEmail(phone.replace(/\D/g, '')),
                         adSoyad: parent.name || '',
                         aktif: true,
                         sifreDegistirmeZorunlu: true,
@@ -611,6 +618,7 @@ export async function bulkUpsertStudents(
                         batch.set(newParentRef, {
                             veliID: pId,
                             telefonNo: phoneStr,
+                            authEmail: formatPhoneEmail(phoneStr),
                             adSoyad: p.name || '',
                             aktif: true,
                             sifreDegistirmeZorunlu: true,

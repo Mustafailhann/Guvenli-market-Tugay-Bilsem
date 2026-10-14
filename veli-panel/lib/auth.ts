@@ -30,10 +30,8 @@ export async function signUp(email: string, password: string, veliData: { telefo
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         const user = userCredential.user;
 
-        const phone = email.split('@')[0];
-
         // Check for existing record
-        const q = query(collection(db, 'veliler'), where('telefonNo', '==', phone));
+        const q = query(collection(db, 'veliler'), where('authEmail', '==', email));
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
@@ -41,7 +39,6 @@ export async function signUp(email: string, password: string, veliData: { telefo
             const existingDoc = querySnapshot.docs[0];
             await updateDoc(doc(db, 'veliler', existingDoc.id), {
                 authID: user.uid,
-                aktif: true,
                 // Ensure password change is mandatory for new link
                 sifreDegistirmeZorunlu: true
             });
@@ -51,6 +48,8 @@ export async function signUp(email: string, password: string, veliData: { telefo
                 veliID: user.uid,
                 ...veliData,
                 adSoyad: veliData.adSoyad || 'İsimsiz Veli', // Set default if missing
+                authID: user.uid,
+                authEmail: email,
                 kayitTarihi: Timestamp.now(),
                 aktif: true,
                 sifreDegistirmeZorunlu: true // Force for new users
@@ -96,9 +95,10 @@ export function getCurrentUser(): User | null {
 }
 
 export function formatPhoneEmail(phone: string): string {
-    // Basic cleanup: remove spaces, ensure it starts with something standard if needed
-    // For now assuming clean input or doing basic strip
-    const cleanPhone = phone.replace(/\s+/g, '');
+    let cleanPhone = phone.replace(/\D/g, '');
+    if (cleanPhone.length === 11 && cleanPhone.startsWith('0')) {
+        cleanPhone = cleanPhone.slice(1);
+    }
     return `${cleanPhone}@okul.local`;
 }
 
@@ -165,7 +165,8 @@ export async function changeAdminSettings(currentPassword: string, newPhone?: st
             const veli = await getCurrentVeli(user);
             if (veli) {
                 await setDoc(doc(db, 'veliler', veli.veliID), {
-                    telefonNo: cleanPhone
+                    telefonNo: cleanPhone,
+                    authEmail: newEmail
                 }, { merge: true });
             } else {
                 await setDoc(doc(db, 'veliler', user.uid), {

@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import '../models/ogrenci.dart';
 import '../models/urun.dart';
+import 'fotograf_yukleme_servisi.dart';
 
 T? _ilkVeyaNull<T>(Iterable<T> degerler) =>
     degerler.isEmpty ? null : degerler.first;
@@ -56,6 +56,7 @@ class VeriYoneticisi extends ChangeNotifier {
 
   // Ürün Listesi (Firestore'dan gelecek)
   List<Urun> urunler = [];
+  final Map<String, int> _sunucuStoklari = {};
 
   // OFFLINE DEPOLAMA
   SharedPreferences? _prefs;
@@ -76,6 +77,11 @@ class VeriYoneticisi extends ChangeNotifier {
   // Firestore'dan verileri yükle
   Future<void> verileriYukle() async {
     _prefs = await SharedPreferences.getInstance();
+    try {
+      await FotografYuklemeServisi.instance.baslat();
+    } catch (e) {
+      print('⚠️ Fotoğraf kuyruğu başlatılamadı: $e');
+    }
     await _offlineIslemleriYukle();
     await _offlineSatislariYukle();
     await _offlineVerileriYukle();
@@ -110,6 +116,7 @@ class VeriYoneticisi extends ChangeNotifier {
   // Stream Subscriptions
   StreamSubscription? _ogrenciSubscription;
   StreamSubscription? _urunSubscription;
+  StreamSubscription? _satisSubscription;
 
   Future<void> _ogrencileriYukle() async {
     final completer = Completer<void>();
@@ -119,8 +126,10 @@ class VeriYoneticisi extends ChangeNotifier {
       await _ogrenciSubscription?.cancel();
 
       // Real-time listener başlat
-      _ogrenciSubscription =
-          _firestore.collection('ogrenciler').snapshots().listen(
+      _ogrenciSubscription = _firestore
+          .collection('ogrenciler')
+          .snapshots(includeMetadataChanges: true)
+          .listen(
         (snapshot) {
           _ogrenciSunucuVerisiGeldi = !snapshot.metadata.isFromCache;
           _internetVarMi = _ogrenciSunucuVerisiGeldi && _urunSunucuVerisiGeldi;
@@ -174,7 +183,9 @@ class VeriYoneticisi extends ChangeNotifier {
             }
           }
           _bekleyenRezervasyonlariOgrencilereUygula();
+          _bekleyenRezervasyonlariUrunlereUygula();
           _ogrencileriOfflineKaydet();
+          _urunleriOfflineKaydet();
           print('✅ ${snapshot.docs.length} öğrenci güncellendi (Stream)');
           notifyListeners();
 
@@ -199,17 +210,20 @@ class VeriYoneticisi extends ChangeNotifier {
 
   Future<void> _urunSatislariniYukle() async {
     try {
-      final doc = await _firestore
+      await _satisSubscription?.cancel();
+      _satisSubscription = _firestore
           .collection('istatistikler')
           .doc('urunSatislari')
-          .get();
-      if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>;
-        data.forEach((key, value) {
-          urunSatislari[key] = value as int;
+          .snapshots()
+          .listen((doc) {
+        urunSatislari.clear();
+        doc.data()?.forEach((key, value) {
+          if (value is num) urunSatislari[key] = value.toInt();
         });
-        print('✅ Ürün satışları Firestore\'dan yüklendi');
-      }
+        notifyListeners();
+      }, onError: (e) {
+        print('❌ Ürün satışları dinlenirken hata: $e');
+      });
     } catch (e) {
       print('❌ Ürün satışları yüklenirken hata: $e');
     }
@@ -223,11 +237,15 @@ class VeriYoneticisi extends ChangeNotifier {
       await _urunSubscription?.cancel();
 
       // Real-time listener başlat
-      _urunSubscription = _firestore.collection('urunler').snapshots().listen(
+      _urunSubscription = _firestore
+          .collection('urunler')
+          .snapshots(includeMetadataChanges: true)
+          .listen(
         (snapshot) {
           _urunSunucuVerisiGeldi = !snapshot.metadata.isFromCache;
           _internetVarMi = _ogrenciSunucuVerisiGeldi && _urunSunucuVerisiGeldi;
           urunler.clear(); // Listeyi temizle ve yeniden oluştur
+          _sunucuStoklari.clear();
 
           for (var doc in snapshot.docs) {
             final data = doc.data();
@@ -240,6 +258,7 @@ class VeriYoneticisi extends ChangeNotifier {
               kategori: data['kategori'] ?? 'Diğer',
               stok: (data['stok'] as int?) ?? 0,
             ));
+            _sunucuStoklari[doc.id] = (data['stok'] as int?) ?? 0;
           }
 
           _bekleyenRezervasyonlariUrunlereUygula();
@@ -403,7 +422,7 @@ class VeriYoneticisi extends ChangeNotifier {
         final ogrenciData = ogrenciSnap.data()!;
         final oncekiBakiye = paraYuvarla((ogrenciData['bakiye'] as num?) ?? 0);
         final urunKalemleri = <Map<String, dynamic>>[];
-        final istatistikUpdate = <String, dynamic>{};
+        final satisAdetleri = <String, int>{};
         double toplamTutar = 0;
         double toplamMaliyet = 0;
 
@@ -443,7 +462,7 @@ class VeriYoneticisi extends ChangeNotifier {
             'birimMaliyet': maliyet,
             'toplamTutar': kalemTutari,
           });
-          istatistikUpdate[ad] = FieldValue.increment(miktar);
+          satisAdetleri[ad] = (satisAdetleri[ad] ?? 0) + miktar;
         }
 
         final limit = ogrenciData['tip'] == 'Personel' ? -50.0 : -10.0;
@@ -496,7 +515,8 @@ class VeriYoneticisi extends ChangeNotifier {
 
         transaction.set(
           _firestore.collection('istatistikler').doc('urunSatislari'),
-          istatistikUpdate,
+          satisAdetleri
+              .map((ad, miktar) => MapEntry(ad, FieldValue.increment(miktar))),
           SetOptions(merge: true),
         );
         transaction.set(satisRef, {
@@ -524,12 +544,6 @@ class VeriYoneticisi extends ChangeNotifier {
         );
       }).timeout(const Duration(seconds: 8));
 
-      if (!sonuc.dahaOnceIslendi) {
-        for (final item in sepet) {
-          urunSatislari[item.urun.isim] =
-              (urunSatislari[item.urun.isim] ?? 0) + item.miktar;
-        }
-      }
       notifyListeners();
       return sonuc;
     } on OdemeHatasi {
@@ -779,7 +793,8 @@ class VeriYoneticisi extends ChangeNotifier {
       final docID = satis['ogrenciId'].toString();
       final ogrenci = ogrenciler[kartID] ?? ogrenciler[docID];
       if (ogrenci == null) continue;
-      ogrenci.bakiye = (satis['yeniBakiye'] as num).toDouble();
+      final tutar = (satis['toplamTutar'] as num).toDouble();
+      ogrenci.bakiye = ((ogrenci.bakiye - tutar) * 100).round() / 100.0;
       if (!ogrenci.islemGecmisi.any((i) => i.satisId == satisId)) {
         final kalemler = (satis['urunler'] as List<dynamic>)
             .map((u) => UrunKalemi.fromMap(Map<String, dynamic>.from(u as Map)))
@@ -812,7 +827,10 @@ class VeriYoneticisi extends ChangeNotifier {
     }
     for (final urun in urunler) {
       final rezervasyon = toplamRezervasyon[urun.id] ?? 0;
-      urun.stok = (urun.stok - rezervasyon).clamp(0, urun.stok).toInt();
+      final sunucuStogu = _sunucuStoklari[urun.id];
+      if (sunucuStogu != null) {
+        urun.stok = (sunucuStogu - rezervasyon).clamp(0, sunucuStogu).toInt();
+      }
     }
   }
 
@@ -860,7 +878,10 @@ class VeriYoneticisi extends ChangeNotifier {
 
   Future<void> _offlineSatislariSenkronizeEt() async {
     if (_offlineSenkronizasyonCalisiyor ||
-        !_offlineSatislar.any((s) => s['durum'] == 'bekliyor')) return;
+        !_offlineSatislar.any((s) =>
+            s['durum'] == 'bekliyor' || s['durum'] == 'mutabakat_gerekli')) {
+      return;
+    }
     _offlineSenkronizasyonCalisiyor = true;
     try {
       if (FirebaseAuth.instance.currentUser == null) {
@@ -869,6 +890,36 @@ class VeriYoneticisi extends ChangeNotifier {
             .timeout(const Duration(seconds: 8));
       }
       for (final satis in List<Map<String, dynamic>>.from(_offlineSatislar)) {
+        if (satis['durum'] == 'mutabakat_gerekli') {
+          try {
+            final satisId = satis['satisId'].toString();
+            final sunucuSatisi = await _firestore
+                .collection('satislar')
+                .doc(satisId)
+                .get(const GetOptions(source: Source.server));
+            if (sunucuSatisi.exists) {
+              await _offlineSatisFotografiniYukle(satis);
+              _offlineSatislar
+                  .removeWhere((item) => item['satisId'] == satisId);
+              await _offlineSatislariKaydet();
+              final ogrenci = ogrenciler[satis['kartID']];
+              if (ogrenci != null) {
+                for (final islem in ogrenci.islemGecmisi) {
+                  if (islem.satisId == satisId) {
+                    islem.senkronizasyonDurumu = 'tamamlandi';
+                  }
+                }
+              }
+              await _ogrencileriOfflineKaydet();
+            } else {
+              await _mutabakatKaydiYaz(
+                  satis, satis['sonHata']?.toString() ?? 'Mutabakat gerekli');
+            }
+          } catch (e) {
+            print('⚠️ Mutabakat durumu kontrol edilemedi: $e');
+          }
+          continue;
+        }
         if (satis['durum'] != 'bekliyor') continue;
         final kalemler = (satis['urunler'] as List<dynamic>)
             .map((raw) => Map<String, dynamic>.from(raw as Map))
@@ -888,34 +939,18 @@ class VeriYoneticisi extends ChangeNotifier {
           );
         }).toList(growable: false);
         try {
-          final sonuc = await odemeYap(
+          await odemeYap(
             satis['kartID'],
             sepet,
             satisId: satis['satisId'],
             islemFotografiYolu: satis['islemFotografi'],
             offlineFiyatSnapshotiniKullan: true,
           );
-          final yerelFotograf = satis['yerelFotografYolu']?.toString();
-          final uzakFotograf = satis['islemFotografi']?.toString();
-          if (yerelFotograf != null && uzakFotograf != null) {
-            try {
-              final dosya = File(yerelFotograf);
-              if (await dosya.exists()) {
-                await FirebaseStorage.instance
-                    .ref()
-                    .child(uzakFotograf)
-                    .putFile(dosya);
-                await dosya.delete();
-              }
-            } catch (e) {
-              print('⚠️ Offline satış fotoğrafı yüklenemedi: $e');
-            }
-          }
+          await _offlineSatisFotografiniYukle(satis);
           _offlineSatislar
               .removeWhere((item) => item['satisId'] == satis['satisId']);
           final ogrenci = ogrenciler[satis['kartID']];
           if (ogrenci != null) {
-            ogrenci.bakiye = sonuc.yeniBakiye;
             for (final islem in ogrenci.islemGecmisi) {
               if (islem.satisId == satis['satisId']) {
                 islem.senkronizasyonDurumu = 'tamamlandi';
@@ -946,15 +981,21 @@ class VeriYoneticisi extends ChangeNotifier {
     }
   }
 
+  Future<void> _offlineSatisFotografiniYukle(Map<String, dynamic> satis) async {
+    FotografYuklemeServisi.instance
+        .satisKaydiHazir(satis['satisId'].toString());
+  }
+
   Future<void> _mutabakatKaydiYaz(
       Map<String, dynamic> satis, String hata) async {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid == null) return;
-      await _firestore
-          .collection('offline_mutabakatlar')
-          .doc(satis['satisId'])
-          .set({
+      final ref =
+          _firestore.collection('offline_mutabakatlar').doc(satis['satisId']);
+      final mevcut = await ref.get(const GetOptions(source: Source.server));
+      if (mevcut.exists) return;
+      await ref.set({
         ...satis,
         'hata': hata,
         'posUid': uid,

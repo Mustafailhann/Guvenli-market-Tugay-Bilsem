@@ -51,6 +51,7 @@ export default function SetupAdminsPage() {
                         unvan: admin.unvan,
                         role: admin.role,
                         aktif: admin.aktif,
+                        authEmail: `${admin.telefonNo}@okul.local`,
                     });
                     log.push(`✅ Güncellendi: ${admin.adSoyad} (${admin.unvan})`);
                 } else {
@@ -58,6 +59,7 @@ export default function SetupAdminsPage() {
                     await setDoc(newRef, {
                         veliID: newRef.id,
                         ...admin,
+                        authEmail: `${admin.telefonNo}@okul.local`,
                         kayitTarihi: Timestamp.now(),
                     });
                     log.push(`✅ Eklendi: ${admin.adSoyad} (${admin.unvan})`);

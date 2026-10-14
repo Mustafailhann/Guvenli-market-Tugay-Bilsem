@@ -18,6 +18,16 @@ import { User } from 'firebase/auth';
 import { db } from './firebase';
 import { Veli, CocukTalebi, Ogrenci, CocukWithStatus } from '@/types';
 
+async function ensureParentAuthLink(uid: string, veliId: string) {
+    const ref = doc(db, 'parent_auth', uid);
+    const current = await getDoc(ref);
+    if (!current.exists()) {
+        await setDoc(ref, { veliId });
+    } else if (current.data().veliId !== veliId) {
+        throw new Error('Veli hesabı bağlantısı uyuşmuyor.');
+    }
+}
+
 // Veli Operations
 export async function getVeli(veliID: string): Promise<Veli | null> {
     try {
@@ -43,24 +53,31 @@ export async function getCurrentVeli(user: User): Promise<Veli | null> {
         const qAuth = query(collection(db, 'veliler'), where('authID', '==', user.uid));
         const authSnap = await getDocs(qAuth);
 
-        if (!authSnap.empty) {
-            return authSnap.docs[0].data() as Veli;
+        if (authSnap.size === 1) {
+            await ensureParentAuthLink(user.uid, authSnap.docs[0].id);
+            return { ...authSnap.docs[0].data(), veliID: authSnap.docs[0].id } as Veli;
+        }
+        if (authSnap.size > 1) {
+            throw new Error('Bu girişe birden fazla veli kaydı bağlanmış.');
         }
 
         // 2. Not linked? Try Phone Number Match
         // E.g. 5551234567@okul.local -> 5551234567
-        const phone = user.email.split('@')[0];
-        const qPhone = query(collection(db, 'veliler'), where('telefonNo', '==', phone));
+        const qPhone = query(collection(db, 'veliler'), where('authEmail', '==', user.email));
         const phoneSnap = await getDocs(qPhone);
 
-        if (!phoneSnap.empty) {
+        if (phoneSnap.size === 1) {
             const veliDoc = phoneSnap.docs[0];
             // LINK ACCOUNTS
             await updateDoc(doc(db, 'veliler', veliDoc.id), {
                 authID: user.uid
             });
+            await ensureParentAuthLink(user.uid, veliDoc.id);
             const existingData = veliDoc.data() as Veli;
-            return { ...existingData, authID: user.uid };
+            return { ...existingData, veliID: veliDoc.id, authID: user.uid };
+        }
+        if (phoneSnap.size > 1) {
+            throw new Error('Bu telefona birden fazla veli kaydı bağlı.');
         }
 
         return null;

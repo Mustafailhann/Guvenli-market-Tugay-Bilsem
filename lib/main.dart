@@ -7,12 +7,10 @@ import 'package:intl/intl.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:camera/camera.dart';
 import 'package:uuid/uuid.dart';
-import 'dart:io';
 import 'firebase_options.dart';
 
 // Model imports
@@ -21,6 +19,7 @@ import 'models/urun.dart';
 
 // Service imports
 import 'services/veri_yoneticisi.dart';
+import 'services/fotograf_yukleme_servisi.dart';
 import 'services/update_service.dart';
 
 // Data imports
@@ -29,18 +28,8 @@ import 'data/urunler.dart' as Data;
 CameraController? globalCameraController;
 List<CameraDescription>? cameras;
 
-class MyHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
-  }
-}
-
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  HttpOverrides.global = MyHttpOverrides();
 
   // KIOSK MODU - Cihazın navigasyon barını ve üst statüs çubuğunu gizler
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -642,8 +631,9 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
             'Mutabakat gerekli: ${veri.mutabakatGerekenSatisSayisi} satış';
         _statusRenk = Colors.red;
       } else if (veri.bekleyenOfflineSatisSayisi > 0) {
-        _statusMesaji =
-            'Çevrimdışı • ${veri.bekleyenOfflineSatisSayisi} satış bekliyor';
+        _statusMesaji = veri.internetVarMi
+            ? 'Online • ${veri.bekleyenOfflineSatisSayisi} satış senkronizasyon bekliyor'
+            : 'Çevrimdışı • ${veri.bekleyenOfflineSatisSayisi} satış bekliyor';
         _statusRenk = Colors.orange;
       } else if (!veri.internetVarMi) {
         _statusMesaji = 'Çevrimdışı • Satışa hazır';
@@ -1591,16 +1581,15 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
 
       final satisId = 'pos_${const Uuid().v4()}';
       String? fotoYolu;
-      String? yerelFotoYolu;
       if (globalCameraController != null &&
           globalCameraController!.value.isInitialized) {
         try {
           final XFile image = await globalCameraController!.takePicture();
-          yerelFotoYolu = image.path;
+          await FotografYuklemeServisi.instance
+              .fotografiSakla(satisId, image.path);
           fotoYolu = 'islem_fotograflari/$temizKartID/$satisId.jpg';
-          _fotografiArkaplandaYukle(image, fotoYolu);
         } catch (e) {
-          print('⚠️ Fotoğraf çekilemedi: $e');
+          print('⚠️ Fotoğraf çekilemedi veya kalıcı saklanamadı: $e');
         }
       }
 
@@ -1619,10 +1608,10 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
           sepetAnlik,
           satisId: satisId,
           islemFotografiYolu: fotoYolu,
-          yerelFotografYolu: yerelFotoYolu,
         );
       }
       if (!mounted) return;
+      FotografYuklemeServisi.instance.satisKaydiHazir(satisId);
 
       // Transaction onaylandığı anda sepeti kapat; sonuç penceresini
       // beklerken aynı sepetin başka karta satılmasına izin verme.
@@ -1661,19 +1650,6 @@ class _UrunListesiEkraniState extends State<UrunListesiEkrani> {
     } finally {
       _odemeIsleniyor = false;
       if (mounted) _focusNode.requestFocus();
-    }
-  }
-
-  void _fotografiArkaplandaYukle(XFile image, String path) async {
-    try {
-      final ref = FirebaseStorage.instance.ref().child(path);
-      await ref.putFile(File(image.path));
-      print("✅ Fotoğraf arka planda yüklendi: $path");
-
-      // İsterseniz dosyayı silebilirsiniz:
-      // File(image.path).delete();
-    } catch (e) {
-      print("⚠️ Arka planda fotoğraf yüklenemedi: $e");
     }
   }
 

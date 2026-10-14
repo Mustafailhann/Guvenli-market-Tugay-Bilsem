@@ -33,6 +33,9 @@ migrate_working_dir/
 .codex-tools/
 **/Flutter/ephemeral/
 .windows-build-disabled/
+.firebase-emulators/
+/photo-server/node_modules/
+/rules-tests/node_modules/
 *.tsbuildinfo
 .env
 .env.*

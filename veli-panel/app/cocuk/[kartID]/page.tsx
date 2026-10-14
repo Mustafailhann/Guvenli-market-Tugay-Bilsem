@@ -6,9 +6,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/hooks/useAuth';
-import { getOgrenci } from '@/lib/firestore';
+import { getCurrentVeli, getCocuklarWithData } from '@/lib/firestore';
 import { Ogrenci, isHarcama } from '@/types';
 import Card from '@/components/ui/Card';
+import PhotoModal from '@/components/admin/PhotoModal';
 
 export default function CocukDetayPage({ params }: { params: Promise<{ kartID: string }> }) {
     const router = useRouter();
@@ -17,6 +18,7 @@ export default function CocukDetayPage({ params }: { params: Promise<{ kartID: s
     const [loading, setLoading] = useState(true);
     const [kartID, setKartID] = useState<string | null>(null);
     const [filter, setFilter] = useState<'week' | 'month' | 'all'>('week');
+    const [selectedPhoto, setSelectedPhoto] = useState<{ path: string; saleId?: string; timestamp: string } | null>(null);
 
     useEffect(() => {
         params.then(p => setKartID(p.kartID));
@@ -30,15 +32,23 @@ export default function CocukDetayPage({ params }: { params: Promise<{ kartID: s
 
     useEffect(() => {
         async function fetchData() {
-            if (!kartID) return;
-
-            const data = await getOgrenci(kartID);
-            setOgrenci(data);
-            setLoading(false);
+            if (!kartID || authLoading) return;
+            if (!user) {
+                setLoading(false);
+                return;
+            }
+            try {
+                const veli = await getCurrentVeli(user);
+                const cocuklar = veli ? await getCocuklarWithData(veli.veliID) : [];
+                const kendiCocugu = cocuklar.find(c => c.durum === 'onaylandi' && c.kartID === kartID);
+                setOgrenci(kendiCocugu?.ogrenciData || null);
+            } finally {
+                setLoading(false);
+            }
         }
 
         fetchData();
-    }, [kartID]);
+    }, [kartID, user, authLoading]);
 
     if (authLoading || loading) {
         return (
@@ -57,7 +67,7 @@ export default function CocukDetayPage({ params }: { params: Promise<{ kartID: s
                 <div className="text-center">
                     <p className="text-gray-600 mb-4">Öğrenci bulunamadı</p>
                     <Link href="/dashboard" className="text-indigo-600 hover:underline">
-                        ← Dashboard'a dön
+                        ← Dashboard&apos;a dön
                     </Link>
                 </div>
             </div>
@@ -173,6 +183,18 @@ export default function CocukDetayPage({ params }: { params: Promise<{ kartID: s
                                         </div>
                                     </div>
                                     <div className="text-sm text-gray-700">{islem.aciklama}</div>
+                                    {islem.islemFotografi && (
+                                        <button
+                                            onClick={() => setSelectedPhoto({
+                                                path: islem.islemFotografi!,
+                                                saleId: islem.satisId,
+                                                timestamp: islem.tarih.toDate().toLocaleString('tr-TR'),
+                                            })}
+                                            className="mt-2 text-sm text-indigo-600 hover:underline"
+                                        >
+                                            📷 İşlem fotoğrafını gör
+                                        </button>
+                                    )}
                                     {islem.urunler && islem.urunler.length > 0 && (
                                         <div className="mt-2 text-xs text-gray-600">
                                             Ürünler: {islem.urunler.join(', ')}
@@ -184,6 +206,13 @@ export default function CocukDetayPage({ params }: { params: Promise<{ kartID: s
                     )}
                 </Card>
             </div>
+            <PhotoModal
+                isOpen={!!selectedPhoto}
+                onClose={() => setSelectedPhoto(null)}
+                photoPath={selectedPhoto?.path || ''}
+                saleId={selectedPhoto?.saleId}
+                timestamp={selectedPhoto?.timestamp}
+            />
         </div>
     );
 }

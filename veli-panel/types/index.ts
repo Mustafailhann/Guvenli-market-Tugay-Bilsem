@@ -5,6 +5,7 @@ import { Timestamp } from 'firebase/firestore';
 export interface Veli {
     veliID: string;
     authID?: string; // Links to Firebase Auth UID
+    authEmail?: string; // Normalized phone-based Firebase Auth email
     adSoyad: string;
     telefonNo: string;
     email?: string;

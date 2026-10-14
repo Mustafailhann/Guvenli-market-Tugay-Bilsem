@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { auth } from '@/lib/firebase';
 
 interface PhotoModalProps {
     isOpen: boolean;
     onClose: () => void;
     photoPath: string;
+    saleId?: string;
     timestamp?: string;
     deviceName?: string;
 }
@@ -14,6 +16,7 @@ export default function PhotoModal({
     isOpen,
     onClose,
     photoPath,
+    saleId,
     timestamp,
     deviceName = "Cihaz: Otomat-1"
 }: PhotoModalProps) {
@@ -22,40 +25,61 @@ export default function PhotoModal({
     const [error, setError] = useState('');
 
     useEffect(() => {
-        let isMounted = true;
+        let cancelled = false;
+        let objectUrl: string | null = null;
 
         const loadPhoto = async () => {
             if (!isOpen || !photoPath) {
-                if (isMounted) {
-                    setPhotoUrl(null);
-                    setError('');
-                }
+                setPhotoUrl(null);
+                setError('');
+                setLoading(false);
                 return;
             }
 
+            setPhotoUrl(null);
             setLoading(true);
             setError('');
-            
-            // Eğer path zaten bir URL ise (http ile başlıyorsa)
-            if (photoPath.startsWith('http')) {
-                if (isMounted) setPhotoUrl(photoPath);
+
+            const id = saleId || /\/([A-Za-z0-9_-]+)\.jpg$/.exec(photoPath)?.[1];
+            if (!id) {
+                setError('Bu işlemin fotoğraf kimliği bulunamadı.');
+                setLoading(false);
                 return;
             }
 
-            // Kendi backend API'miz üzerinden Firebase CORS kurallarını atlayarak yükle
-            // Bu yöntem CORS sorununu sunucu tarafında çözer
-            const backendProxyUrl = `/api/image?path=${encodeURIComponent(photoPath)}`;
-            
-            // Eğer doğrudan src olarak atarsak:
-            if (isMounted) setPhotoUrl(backendProxyUrl);
+            try {
+                const user = auth.currentUser;
+                if (!user) throw new Error('Fotoğraf için yeniden giriş yapın.');
+                const token = await user.getIdToken();
+                const response = await fetch(`/api/image?saleId=${encodeURIComponent(id)}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    cache: 'no-store',
+                });
+                if (!response.ok) {
+                    throw new Error(response.status === 404
+                        ? 'Fotoğraf henüz yüklenmedi veya mevcut değil.'
+                        : response.status === 403
+                            ? 'Bu fotoğrafı görüntüleme yetkiniz yok.'
+                            : 'Fotoğraf sunucusuna ulaşılamadı.');
+                }
+                const blob = await response.blob();
+                if (cancelled) return;
+                objectUrl = URL.createObjectURL(blob);
+                setPhotoUrl(objectUrl);
+            } catch (caught) {
+                if (!cancelled) setError(caught instanceof Error ? caught.message : 'Fotoğraf yüklenemedi.');
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
         };
 
-        loadPhoto();
+        void loadPhoto();
 
         return () => {
-            isMounted = false;
+            cancelled = true;
+            if (objectUrl) URL.revokeObjectURL(objectUrl);
         };
-    }, [isOpen, photoPath]);
+    }, [isOpen, photoPath, saleId]);
 
     if (!isOpen) return null;
 

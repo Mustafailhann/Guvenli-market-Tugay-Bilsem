@@ -7,11 +7,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return signedIn() && (
-        request.auth.token.admin == true ||
-        (exists(/databases/$(database)/documents/veliler/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/veliler/$(request.auth.uid)).data.role == 'admin')
-      );
+      return signedIn() && request.auth.token.get('admin', false) == true;
     }
 
     function isPos() {
@@ -20,18 +16,61 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/pos_cihazlari/$(request.auth.uid)).data.aktif == true;
     }
 
+    function parentLinkExists() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/parent_auth/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/veliler/$(parentId()))
+        && get(/databases/$(database)/documents/veliler/$(parentId())).data.get('authID', '') == request.auth.uid
+        && get(/databases/$(database)/documents/veliler/$(parentId())).data.get('aktif', true) == true;
+    }
+
+    function parentId() {
+      return get(/databases/$(database)/documents/parent_auth/$(request.auth.uid)).data.veliId;
+    }
+
+    function ownsStudent() {
+      return parentLinkExists()
+        && parentId() in resource.data.get('veliIDleri', []);
+    }
+
     match /pos_cihazlari/{uid} {
       allow read, write: if isAdmin();
       allow read: if signedIn() && request.auth.uid == uid;
     }
 
+    match /parent_auth/{uid} {
+      allow read, write: if isAdmin();
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['veliId'])
+        && request.resource.data.veliId is string
+        && exists(/databases/$(database)/documents/veliler/$(request.resource.data.veliId))
+        && get(/databases/$(database)/documents/veliler/$(request.resource.data.veliId)).data.authID == uid;
+    }
+
     match /veliler/{veliId} {
       allow read, write: if isAdmin();
-      allow read: if signedIn() && (request.auth.uid == veliId || resource.data.authID == request.auth.uid);
+      allow read: if signedIn() && (
+        resource.data.get('authID', '') == request.auth.uid ||
+        resource.data.get('authEmail', '') == request.auth.token.email
+      );
+      allow create: if signedIn() && veliId == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'veliID', 'authID', 'authEmail', 'adSoyad', 'telefonNo', 'email',
+          'kayitTarihi', 'aktif', 'sifreDegistirmeZorunlu'
+        ])
+        && request.resource.data.veliID == veliId
+        && request.resource.data.authID == request.auth.uid
+        && request.resource.data.authEmail == request.auth.token.email
+        && request.resource.data.telefonNo + '@okul.local' == request.auth.token.email
+        && request.resource.data.aktif == true;
       allow update: if signedIn()
-        && resource.data.authID == request.auth.uid
+        && (resource.data.get('authID', '') == request.auth.uid ||
+            resource.data.get('authEmail', '') == request.auth.token.email)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['adSoyad', 'telefonNo', 'email', 'sifreDegistirmeZorunlu']);
+          .hasOnly(['authID', 'adSoyad', 'email', 'sifreDegistirmeZorunlu'])
+        && resource.data.get('authID', '') in ['', request.auth.uid]
+        && request.resource.data.authID == request.auth.uid;
     }
 
     match /ogrenciler/{hesapId} {
@@ -40,7 +79,7 @@ service cloud.firestore {
       allow update: if isPos()
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['bakiye', 'islemGecmisi']);
-      allow read: if signedIn() && request.auth.uid in resource.data.veliIDleri;
+      allow read: if ownsStudent();
     }
 
     match /personeller/{hesapId} {
@@ -63,6 +102,7 @@ service cloud.firestore {
 
     match /satislar/{satisId} {
       allow read: if isAdmin();
+      allow create: if isAdmin();
       // Transaction, idempotency belgesini oluşturmadan önce get() yapar.
       // get izni POS'a açık, koleksiyon listeleme yalnızca admine açıktır.
       allow get: if isPos();
@@ -93,6 +133,11 @@ service cloud.firestore {
 
     match /offline_mutabakatlar/{satisId} {
       allow read: if isAdmin();
+      allow update: if isAdmin()
+        && resource.data.durum == 'mutabakat_gerekli'
+        && request.resource.data.durum == 'tamamlandi'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['durum', 'cozumTarihi', 'cozumYontemi']);
       allow get: if isPos();
       allow list: if isAdmin();
       allow create: if isPos()
@@ -131,8 +176,10 @@ service cloud.firestore {
 
     match /cocukTalepleri/{talepId} {
       allow read, write: if isAdmin();
-      allow create: if signedIn() && request.resource.data.veliID == request.auth.uid;
-      allow read: if signedIn() && resource.data.veliID == request.auth.uid;
+      allow create: if parentLinkExists()
+        && request.resource.data.veliID == parentId()
+        && request.resource.data.durum == 'beklemede';
+      allow read: if parentLinkExists() && resource.data.veliID == parentId();
     }
 
     match /app_settings/{docId} {

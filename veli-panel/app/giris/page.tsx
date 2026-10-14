@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { signIn, formatPhoneEmail, signUp } from '@/lib/auth';
 import { getCurrentVeli } from '@/lib/firestore';
-import { updateDoc, doc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 
 export default function GirisPage() {
     const router = useRouter();
@@ -108,18 +106,10 @@ export default function GirisPage() {
                     throw new Error('Hesabınız pasif durumdadır. Lütfen okul yönetimi ile iletişime geçiniz.');
                 }
 
-                // Yönlendirme (Temiz telefon numarası kullanılıyor)
-                const adminPhones = ['5550000000', '5056310572', '5054079537'];
-                const isAdmin = veliData?.role === 'admin' || adminPhones.includes(temizTelefon);
-
-                // Eğer 5550 ile girip henüz role=admin almamışsa veritabanını güncelleyelim
-                if (isAdmin && veliData && veliData.role !== 'admin') {
-                    try {
-                        await updateDoc(doc(db, 'veliler', veliData.veliID), { role: 'admin' });
-                    } catch (e) {
-                        console.error('Role güncellenemedi:', e);
-                    }
-                }
+                // Yönetici yetkisi, istemcinin değiştirebildiği telefon/rol
+                // değerinden değil Firebase Auth özel yetkisinden alınır.
+                const token = await currentUser.getIdTokenResult();
+                const isAdmin = token.claims.admin === true;
 
                 if (isAdmin) {
                     router.push('/admin');
