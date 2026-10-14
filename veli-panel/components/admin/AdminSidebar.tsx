@@ -66,6 +66,15 @@ export default function AdminSidebar() {
             )
         },
         {
+            name: 'Harcamalar',
+            href: '/admin/harcamalar',
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 6h18M3 10h18M5 14h5m-5 4h9M4 3h16a1 1 0 011 1v16a1 1 0 01-1 1H4a1 1 0 01-1-1V4a1 1 0 011-1z" />
+                </svg>
+            )
+        },
+        {
             name: 'Ürünler',
             href: '/admin/urunler',
             icon: (
@@ -114,7 +123,7 @@ export default function AdminSidebar() {
     ];
 
     return (
-        <aside className="w-64 bg-slate-900 min-h-screen text-slate-300 flex flex-col fixed left-0 top-0 bottom-0 z-50">
+        <aside className="w-64 bg-slate-900 h-screen overflow-y-auto text-slate-300 flex flex-col fixed left-0 top-0 bottom-0 z-50">
             <div className="p-6">
                 <div className="flex items-center gap-3 mb-8">
                     <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
