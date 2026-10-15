@@ -9,6 +9,7 @@ const { createHandler } = require('./server');
 const { viewerCanAccessStudent } = require('./authorization');
 
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 1, 0xff, 0xd9]);
+const jpegWithCameraTrailer = Buffer.concat([jpeg, Buffer.from('ctrace\0\0')]);
 
 async function request(handler, { method = 'GET', uid, body, contentType } = {}) {
   const req = Readable.from(body ? [body] : []);
@@ -64,8 +65,8 @@ test('yükleme POS kimliği ve satışla eşleşir; tekrar aynı dosya güvenlid
     const wrongPos = await request(handler, { method: 'PUT', uid: 'stranger',
       contentType: 'image/jpeg', body: jpeg });
     assert.equal(wrongPos.status, 403);
-    const simultaneous = await Promise.all([0, 1].map(() => request(handler, {
-      method: 'PUT', uid: 'pos-1', contentType: 'image/jpeg', body: jpeg,
+    const simultaneous = await Promise.all([jpegWithCameraTrailer, jpeg].map((body) => request(handler, {
+      method: 'PUT', uid: 'pos-1', contentType: 'image/jpeg', body,
     })));
     assert.deepEqual(simultaneous.map((result) => result.status), [200, 200]);
     const otherParent = await request(handler, { uid: 'veli-2' });

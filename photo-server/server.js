@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const SALE_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+const JPEG_END = Buffer.from([0xff, 0xd9]);
 const saveLocks = new Map();
 
 function json(res, status, body) {
@@ -30,13 +31,16 @@ async function readJpeg(req) {
     parts.push(part);
   }
   const buffer = Buffer.concat(parts);
+  const end = buffer.lastIndexOf(JPEG_END);
   if (buffer.length < 4 || buffer[0] !== 0xff || buffer[1] !== 0xd8 ||
-      buffer.at(-2) !== 0xff || buffer.at(-1) !== 0xd9) {
+      end < 2 || buffer.length - end - 2 > 64 * 1024) {
     const error = new Error('Geçerli bir JPEG gerekli.');
     error.status = 415;
     throw error;
   }
-  return buffer;
+  // Bazı Android kameraları JPEG bitişinden sonra özel izleme verisi ekler.
+  // Fotoğrafı yalnız JPEG bitiş işaretine kadar sakla.
+  return buffer.subarray(0, end + 2);
 }
 
 async function saveJpeg(dataDir, saleId, jpeg) {
