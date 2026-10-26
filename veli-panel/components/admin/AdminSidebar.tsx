@@ -84,6 +84,15 @@ export default function AdminSidebar() {
             )
         },
         {
+            name: 'Stok Defteri',
+            href: '/admin/stok-defteri',
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z" />
+                </svg>
+            )
+        },
+        {
             name: 'Veri Yükle',
             href: '/admin/veri-yukle',
             icon: (

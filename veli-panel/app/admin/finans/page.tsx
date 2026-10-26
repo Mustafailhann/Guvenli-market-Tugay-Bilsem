@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { getProducts, updateProduct, updateStockWithLedger } from '@/lib/products';
-import { Urun, StokHareketi } from '@/types';
+import { getProducts, subscribeProducts, updateProduct, updateStockWithLedger } from '@/lib/products';
+import { Urun } from '@/types';
+import StockLedger from '@/components/admin/StockLedger';
 import { addKasaGideri, getKasaGiderleri, GiderTuru, KasaGideri, getRealizedPnlData, PnlResult } from '@/lib/admin';
 import { db, auth } from '@/lib/firebase';
 import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
@@ -52,13 +53,15 @@ interface InlineNumInputProps {
     isSaving: boolean;     // shows spinner ring while Firestore write is pending
     min?: number;
     step?: number;
-    onCommit: (val: number) => void; // called on blur / Enter
+    onCommit: (val: number, expectedValue: number) => void; // called on blur / Enter
 }
 
 function InlineNumInput({ value, isSaving, min = 0, step = 0.01, onCommit }: InlineNumInputProps) {
     // internal string state so user can freely type decimals/clear
     const [localStr, setLocalStr] = useState(value.toString());
     const inputRef = useRef<HTMLInputElement>(null);
+    const dirtyRef = useRef(false);
+    const editBaseRef = useRef(value);
 
     // sync when external value changes (e.g. after a save re-hydrates)
     useEffect(() => {
@@ -69,11 +72,16 @@ function InlineNumInput({ value, isSaving, min = 0, step = 0.01, onCommit }: Inl
     }, [value]);
 
     const commit = useCallback(() => {
+        if (!dirtyRef.current) {
+            setLocalStr(value.toString());
+            return;
+        }
+        dirtyRef.current = false;
         const parsed = parseFloat(localStr);
         const safe = isNaN(parsed) ? 0 : Math.max(min, parsed);
         // Sync local text back to the clean number (avoids "trailing dot" residue)
         setLocalStr(safe.toString());
-        if (safe !== value) onCommit(safe);
+        if (safe !== editBaseRef.current) onCommit(safe, editBaseRef.current);
     }, [localStr, value, min, onCommit]);
 
     return (
@@ -84,11 +92,12 @@ function InlineNumInput({ value, isSaving, min = 0, step = 0.01, onCommit }: Inl
                 min={min}
                 step={step}
                 value={localStr}
-                onChange={e => setLocalStr(e.target.value)}
+                onFocus={() => { editBaseRef.current = value; dirtyRef.current = false; }}
+                onChange={e => { dirtyRef.current = true; setLocalStr(e.target.value); }}
                 onBlur={commit}
                 onKeyDown={e => {
                     if (e.key === 'Enter') { e.preventDefault(); inputRef.current?.blur(); }
-                    if (e.key === 'Escape') { setLocalStr(value.toString()); inputRef.current?.blur(); }
+                    if (e.key === 'Escape') { dirtyRef.current = false; setLocalStr(value.toString()); inputRef.current?.blur(); }
                 }}
                 className={`
                     w-24 rounded-lg border py-1 px-2 text-right text-sm font-medium
@@ -204,30 +213,28 @@ export default function FinansPage() {
     const [pnlFetched, setPnlFetched] = useState(false);
 
     // ── Stok Defteri (Ledger) state ──────────────────────────────
-    const [stokHareketleri, setStokHareketleri] = useState<StokHareketi[]>([]);
-    const [loadingLedger, setLoadingLedger] = useState(false);
-    const [ledgerSearch, setLedgerSearch] = useState('');
     const [mutabakatlar, setMutabakatlar] = useState<OfflineMutabakat[]>([]);
     const [loadingMutabakat, setLoadingMutabakat] = useState(true);
 
     // ── Admin identity for audit trail ───────────────────────────
     const [adminAdSoyad, setAdminAdSoyad] = useState('Sistem Yöneticisi');
 
-    // ── Load products ─────────────────────────────────────────
+    // Stoklar POS satışları ve stok girişleriyle birlikte canlı güncellenir.
     useEffect(() => {
-        (async () => {
-            setLoadingProducts(true);
-            const data = await getProducts();
-            setProducts(data);
-            // Seed editValues from fetched products
-            const initial: Record<string, EditValues> = {};
-            data.forEach(p => {
-                initial[p.id] = { stok: p.stok ?? 0, maliyet: p.maliyet ?? 0, fiyat: p.fiyat ?? 0 };
-            });
-            setEditValues(initial);
-            setLoadingProducts(false);
-        })();
         fetchGiderler();
+        setLoadingProducts(true);
+        return subscribeProducts(data => {
+            setProducts(data);
+            setEditValues(Object.fromEntries(data.map(product => [product.id, {
+                stok: product.stok ?? 0,
+                maliyet: product.maliyet ?? 0,
+                fiyat: product.fiyat ?? 0,
+            }])));
+            setLoadingProducts(false);
+        }, error => {
+            setLoadingProducts(false);
+            alert('Stoklar güncellenemedi: ' + error.message);
+        });
     }, []);
 
     // -- Resolve admin name from Firebase Auth
@@ -248,20 +255,6 @@ export default function FinansPage() {
         });
         return () => unsubscribeAuth();
     }, []);
-
-    // -- Real-time Stok Defteri listener (lazy -- only when tab opened)
-    useEffect(() => {
-        if (activeTab !== 'defteri') return;
-        setLoadingLedger(true);
-        const q = query(collection(db, 'stok_hareketleri'), orderBy('tarih', 'desc'));
-        const unsub = onSnapshot(q, (snap) => {
-            setStokHareketleri(
-                snap.docs.map(d => ({ id: d.id, ...d.data() } as StokHareketi))
-            );
-            setLoadingLedger(false);
-        });
-        return () => unsub();
-    }, [activeTab]);
 
     // Offline POS çakışmaları muhasebeden gizlenmez; gerçek zamanlı gösterilir.
     useEffect(() => {
@@ -309,7 +302,8 @@ export default function FinansPage() {
     const handleCellCommit = useCallback(async (
         productId: string,
         field: keyof EditValues,
-        newValue: number
+        newValue: number,
+        expectedValue?: number,
     ) => {
         // Optimistically update local state immediately
         setEditValues(prev => ({
@@ -323,7 +317,7 @@ export default function FinansPage() {
         try {
             if (field === 'stok') {
                 // Ledger transaction: reads current stock, diffs, writes audit record
-                const result = await updateStockWithLedger(productId, newValue, adminAdSoyad);
+                const result = await updateStockWithLedger(productId, newValue, adminAdSoyad, expectedValue);
                 if (!result.success) throw new Error(result.error);
             } else {
                 // Maliyet / fiyat: simple update, no ledger needed
@@ -670,7 +664,7 @@ export default function FinansPage() {
                                                                     isSaving={isSaving}
                                                                     min={0}
                                                                     step={1}
-                                                                    onCommit={val => handleCellCommit(row.id, 'stok', val)}
+                                                                    onCommit={(val, previous) => handleCellCommit(row.id, 'stok', val, previous)}
                                                                 />
                                                                 {/* stock status badge below input */}
                                                                 <div className="mt-0.5 text-right">
@@ -1223,141 +1217,7 @@ export default function FinansPage() {
                     )}
 
                     {/* ══════════ TAB: STOK DEFTERİ ══════════ */}
-                    {activeTab === 'defteri' && (
-                        <div className="space-y-4">
-                            {/* Header row */}
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div>
-                                    <h2 className="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-900/30">
-                                            <svg className="h-4 w-4 text-teal-600 dark:text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                            </svg>
-                                        </span>
-                                        Stok Defteri
-                                    </h2>
-                                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Her manuel stok değişikliği otomatik olarak kaydedilir — gerçek zamanlı</p>
-                                </div>
-                                {/* Search */}
-                                <div className="relative max-w-xs w-full">
-                                    <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
-                                    </svg>
-                                    <input
-                                        type="text"
-                                        placeholder="Ürün adına göre filtrele..."
-                                        value={ledgerSearch}
-                                        onChange={e => setLedgerSearch(e.target.value)}
-                                        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-800 shadow-sm outline-none transition focus:border-teal-400 focus:ring-2 focus:ring-teal-400/20 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:border-teal-500"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
-                                {loadingLedger ? (
-                                    <div className="flex h-48 items-center justify-center">
-                                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-teal-500 border-t-transparent" />
-                                    </div>
-                                ) : (() => {
-                                    const lower = ledgerSearch.toLowerCase();
-                                    const filtered = stokHareketleri.filter(h =>
-                                        h.urunAdi.toLowerCase().includes(lower)
-                                    );
-                                    return filtered.length === 0 ? (
-                                        <div className="py-20 text-center text-slate-400 dark:text-slate-500">
-                                            <svg className="mx-auto mb-3 h-12 w-12 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                            </svg>
-                                            <p className="text-sm">
-                                                {ledgerSearch ? 'Bu aramayla eşleşen hareket bulunamadı.' : 'Henüz stok hareketi kaydedilmemiş.'}
-                                            </p>
-                                            <p className="text-xs mt-1">Stok & Ürün Analizi sekmesinden bir ürünün stok adetini düzenleyin.</p>
-                                        </div>
-                                    ) : (
-                                        <div className="overflow-x-auto">
-                                            <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
-                                                <thead className="bg-slate-50 dark:bg-slate-800">
-                                                    <tr>
-                                                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap">Tarih</th>
-                                                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Ürün Adı</th>
-                                                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">İşlem</th>
-                                                        <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap">Eski Stok</th>
-                                                        <th className="px-5 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap">Yeni Stok</th>
-                                                        <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 whitespace-nowrap">İşlem Yapan</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                    {filtered.map((h, idx) => {
-                                                        const isGiris = h.miktarDegisimi > 0;
-                                                        const tarih = h.tarih instanceof Timestamp
-                                                            ? h.tarih.toDate()
-                                                            : new Date((h.tarih as any)?.seconds * 1000 || Date.now());
-                                                        return (
-                                                            <tr
-                                                                key={h.id}
-                                                                className={`transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 ${idx % 2 === 0 ? '' : 'bg-slate-50/40 dark:bg-slate-800/20'}`}
-                                                            >
-                                                                {/* Tarih */}
-                                                                <td className="px-5 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                                                                    <div>{tarih.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' })}</div>
-                                                                    <div className="text-slate-400">{tarih.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}</div>
-                                                                </td>
-                                                                {/* Ürün Adı */}
-                                                                <td className="px-5 py-3">
-                                                                    <span className="font-medium text-slate-800 dark:text-slate-100 text-sm">{h.urunAdi}</span>
-                                                                </td>
-                                                                {/* İşlem badge */}
-                                                                <td className="px-5 py-3">
-                                                                    <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
-                                                                        isGiris
-                                                                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                                                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                                                    }`}>
-                                                                        <span className="text-base leading-none">{isGiris ? '▲' : '▼'}</span>
-                                                                        {isGiris ? `+${h.miktarDegisimi}` : h.miktarDegisimi} Adet
-                                                                        &nbsp;·&nbsp;
-                                                                        {h.islemTipi}
-                                                                    </span>
-                                                                </td>
-                                                                {/* Eski Stok */}
-                                                                <td className="px-5 py-3 text-right text-sm text-slate-500 dark:text-slate-400">
-                                                                    {h.eskiStok}
-                                                                </td>
-                                                                {/* Yeni Stok */}
-                                                                <td className="px-5 py-3 text-right">
-                                                                    <span className={`inline-block rounded-lg px-2.5 py-0.5 text-sm font-bold ${
-                                                                        h.yeniStok === 0
-                                                                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                                                            : h.yeniStok <= 15
-                                                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                                                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                                                    }`}>
-                                                                        {h.yeniStok}
-                                                                    </span>
-                                                                </td>
-                                                                {/* İşlem Yapan */}
-                                                                <td className="px-5 py-3">
-                                                                    <div className="flex items-center gap-2">
-                                                                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-200 dark:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300">
-                                                                            {h.islemYapan?.charAt(0)?.toUpperCase() ?? 'S'}
-                                                                        </div>
-                                                                        <span className="text-sm text-slate-600 dark:text-slate-300">{h.islemYapan ?? 'Sistem Yoneticisi'}</span>
-                                                                    </div>
-                                                                </td>
-                                                            </tr>
-                                                        );
-                                                    })}
-                                                </tbody>
-                                            </table>
-                                            <div className="border-t border-slate-100 px-5 py-3 dark:border-slate-800">
-                                                <p className="text-xs text-slate-400 dark:text-slate-500">{filtered.length} hareket gösteriliyor · En yeni üstte</p>
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
-                            </div>
-                        </div>
-                    )}
+                    {activeTab === 'defteri' && <StockLedger islemYapan={adminAdSoyad} />}
 
                     {activeTab === 'mutabakat' && (
                         <div className="space-y-4">

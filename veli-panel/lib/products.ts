@@ -2,17 +2,17 @@ import {
     collection,
     doc,
     getDocs,
-    addDoc,
     updateDoc,
     deleteDoc,
-    Timestamp,
     query,
     orderBy,
     runTransaction,
     serverTimestamp,
+    writeBatch,
+    onSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { Urun, StokHareketi, StokIslemTipi } from '@/types';
+import { Urun, StokIslemTipi } from '@/types';
 
 const COLLECTION_NAME = 'urunler';
 
@@ -55,15 +55,39 @@ export async function getProducts(): Promise<Urun[]> {
     }
 }
 
-export async function addProduct(data: Omit<Urun, 'id' | 'olusturmaTarihi'>) {
+export function subscribeProducts(
+    onProducts: (products: Urun[]) => void,
+    onError: (error: Error) => void,
+) {
+    return onSnapshot(query(collection(db, COLLECTION_NAME), orderBy('ad')), snapshot => {
+        onProducts(snapshot.docs.map(product => ({ id: product.id, ...product.data() } as Urun)));
+    }, onError);
+}
+
+export async function addProduct(data: Omit<Urun, 'id' | 'olusturmaTarihi'>, islemYapan = 'Sistem Yöneticisi') {
     try {
         assertValidStock(data.stok);
         assertValidMoney(data.fiyat, 'Fiyat');
         assertValidMoney(data.maliyet, 'Maliyet');
-        const docRef = await addDoc(collection(db, COLLECTION_NAME), {
+        const docRef = doc(collection(db, COLLECTION_NAME));
+        const batch = writeBatch(db);
+        batch.set(docRef, {
             ...data,
-            olusturmaTarihi: Timestamp.now()
+            olusturmaTarihi: serverTimestamp(),
         });
+        if (data.stok > 0) {
+            batch.set(doc(collection(db, 'stok_hareketleri')), {
+                urunId: docRef.id,
+                urunAdi: data.ad,
+                miktarDegisimi: data.stok,
+                eskiStok: 0,
+                yeniStok: data.stok,
+                tarih: serverTimestamp(),
+                islemTipi: 'Stok Ekleme / Giriş',
+                islemYapan,
+            });
+        }
+        await batch.commit();
         return { success: true, id: docRef.id };
     } catch (error: any) {
         console.error('Error adding product:', error);
@@ -105,7 +129,8 @@ export async function deleteProduct(id: string) {
 export async function updateStockWithLedger(
     productId: string,
     newStok: number,
-    islemYapan: string = 'Sistem Yöneticisi'
+    islemYapan: string = 'Sistem Yöneticisi',
+    expectedStok?: number,
 ) {
     try {
         assertValidStock(newStok);
@@ -118,6 +143,10 @@ export async function updateStockWithLedger(
 
             const data = productSnap.data() as Urun;
             const eskiStok = data.stok ?? 0;
+            assertValidStock(eskiStok);
+            if (expectedStok !== undefined && eskiStok !== expectedStok) {
+                throw new Error(`Stok siz düzenlerken değişti (güncel: ${eskiStok} adet). Güncel miktarı kontrol edip tekrar deneyin.`);
+            }
             const diff = newStok - eskiStok;
 
             // No change — nothing to do
@@ -151,11 +180,55 @@ export async function updateStockWithLedger(
     }
 }
 
+/** Teslim alınan adedi güncel stoğa ekler; satışlarla aynı anda güvenle çalışır. */
+export async function addStockWithLedger(
+    productId: string,
+    quantity: number,
+    islemYapan = 'Sistem Yöneticisi',
+    operationId?: string,
+) {
+    try {
+        assertValidStock(quantity);
+        if (quantity === 0) throw new Error('Eklenen adet sıfırdan büyük olmalıdır.');
+        const productRef = doc(db, COLLECTION_NAME, productId);
+        const movements = collection(db, 'stok_hareketleri');
+        const movementRef = operationId ? doc(movements, operationId) : doc(movements);
+        await runTransaction(db, async transaction => {
+            const previous = await transaction.get(movementRef);
+            if (previous.exists()) {
+                const saved = previous.data();
+                if (saved.urunId !== productId || saved.miktarDegisimi !== quantity || saved.islemTipi !== 'Stok Ekleme / Giriş') {
+                    throw new Error('Bu stok girişinin işlem kimliği başka bir kayıtta kullanılmış.');
+                }
+                return; // Yanıt kaybolup aynı giriş tekrar gönderilirse ikinci kez ekleme.
+            }
+            const product = await transaction.get(productRef);
+            if (!product.exists()) throw new Error('Ürün bulunamadı.');
+            const data = product.data() as Urun;
+            const eskiStok = data.stok ?? 0;
+            assertValidStock(eskiStok);
+            const yeniStok = eskiStok + quantity;
+            assertValidStock(yeniStok);
+            transaction.update(productRef, { stok: yeniStok });
+            transaction.set(movementRef, {
+                urunId: productId, urunAdi: data.ad,
+                miktarDegisimi: quantity, eskiStok, yeniStok,
+                tarih: serverTimestamp(), islemTipi: 'Stok Ekleme / Giriş', islemYapan,
+            });
+        });
+        return { success: true };
+    } catch (error: any) {
+        console.error('Stock receipt error:', error);
+        return { success: false, error: error.message };
+    }
+}
+
 /** Ürün formundaki alanları ve stok farkını tek transaction'da kaydeder. */
 export async function updateProductWithStockLedger(
     productId: string,
     data: Partial<Urun>,
-    islemYapan: string = 'Sistem Yöneticisi'
+    islemYapan: string = 'Sistem Yöneticisi',
+    expectedStok?: number,
 ) {
     try {
         if (data.stok === undefined) throw new Error('Yeni stok değeri eksik.');
@@ -170,9 +243,15 @@ export async function updateProductWithStockLedger(
 
             const current = productSnap.data() as Urun;
             const eskiStok = current.stok ?? 0;
-            const yeniStok = data.stok!;
+            assertValidStock(eskiStok);
+            // Ad/fiyat değiştirirken formun eski stok değerini sunucuya geri yazma.
+            const stockChanged = expectedStok === undefined || data.stok !== expectedStok;
+            if (stockChanged && expectedStok !== undefined && eskiStok !== expectedStok) {
+                throw new Error(`Stok siz düzenlerken değişti (güncel: ${eskiStok} adet). Ürünü yeniden açıp miktarı kontrol edin.`);
+            }
+            const yeniStok = stockChanged ? data.stok! : eskiStok;
             const diff = yeniStok - eskiStok;
-            transaction.update(productRef, data);
+            transaction.update(productRef, { ...data, stok: yeniStok });
 
             if (diff !== 0) {
                 transaction.set(doc(collection(db, 'stok_hareketleri')), {

@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getProducts, addProduct, updateProductWithStockLedger, deleteProduct, uploadProductImage } from '@/lib/products';
+import { subscribeProducts, addProduct, updateProductWithStockLedger, deleteProduct, uploadProductImage } from '@/lib/products';
+import { auth } from '@/lib/firebase';
 import { Urun } from '@/types';
 import * as XLSX from 'xlsx';
 
 export default function ProductsPage() {
     const [products, setProducts] = useState<Urun[]>([]);
     const [loading, setLoading] = useState(true);
+    const [productsError, setProductsError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingProduct, setEditingProduct] = useState<Urun | null>(null);
@@ -25,15 +27,15 @@ export default function ProductsPage() {
     const categories = ['İçecekler', 'Atıştırmalıklar', 'Tatlılar', 'Gofretler', 'Kekler', 'Krakerler', 'Çikolatalar', 'Diğer'];
 
     useEffect(() => {
-        fetchProducts();
+        return subscribeProducts(data => {
+            setProducts(data);
+            setLoading(false);
+            setProductsError('');
+        }, error => {
+            setLoading(false);
+            setProductsError(`Ürünler yüklenemedi: ${error.message}`);
+        });
     }, []);
-
-    const fetchProducts = async () => {
-        setLoading(true);
-        const data = await getProducts();
-        setProducts(data);
-        setLoading(false);
-    };
 
     const handleOpenModal = (product?: Urun) => {
         if (product) {
@@ -79,6 +81,7 @@ export default function ProductsPage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (uploading) return;
         setUploading(true);
 
         try {
@@ -97,23 +100,24 @@ export default function ProductsPage() {
                 ad: name,
                 fiyat: parseFloat(price),
                 kategori: category,
-                stok: parseInt(stock),
+                stok: Number(stock),
                 resimURL: imageURL,
             };
 
             if (editingProduct) {
-                const result = await updateProductWithStockLedger(editingProduct.id, productData);
+                const result = await updateProductWithStockLedger(editingProduct.id, productData,
+                    auth.currentUser?.displayName || auth.currentUser?.email || 'Sistem Yöneticisi', editingProduct.stok);
                 if (!result.success) throw new Error(result.error);
             } else {
-                const result = await addProduct(productData);
+                const result = await addProduct(productData,
+                    auth.currentUser?.displayName || auth.currentUser?.email || 'Sistem Yöneticisi');
                 if (!result.success) throw new Error(result.error);
             }
 
             setIsModalOpen(false);
-            fetchProducts();
         } catch (error) {
             console.error('Error saving product:', error);
-            alert('Ürün kaydedilirken bir hata oluştu.');
+            alert(error instanceof Error ? error.message : 'Ürün kaydedilirken bir hata oluştu.');
         } finally {
             setUploading(false);
         }
@@ -121,8 +125,8 @@ export default function ProductsPage() {
 
     const handleDelete = async (id: string) => {
         if (confirm('Bu ürünü silmek istediğinize emin misiniz?')) {
-            await deleteProduct(id);
-            fetchProducts();
+            const result = await deleteProduct(id);
+            if (!result.success) alert(result.error || 'Ürün silinemedi.');
         }
     };
 
@@ -147,6 +151,7 @@ export default function ProductsPage() {
 
     return (
         <div className="p-6">
+            {productsError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-4 text-red-700">{productsError}</p>}
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold text-gray-800">Ürün Yönetimi</h1>
                 <div className="flex gap-3">
