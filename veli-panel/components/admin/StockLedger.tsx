@@ -75,6 +75,18 @@ export default function StockLedger({ islemYapan }: { islemYapan?: string }) {
         (movement.urunAdi ?? '').toLocaleLowerCase('tr-TR').includes(search.toLocaleLowerCase('tr-TR')) &&
         (kind === 'all' || (kind === 'in' ? movement.miktarDegisimi > 0 : movement.miktarDegisimi < 0)),
     );
+    const groups = new Map<string, StokHareketi[]>([
+        ['Stok Ekleme / Giriş', []],
+        ['Stok Düzeltme / Çıkış', []],
+        ['Satış', []],
+        ['Satış İptali', []],
+    ]);
+    for (const movement of filtered) {
+        const type = movement.islemTipi || 'Diğer';
+        const group = groups.get(type);
+        if (group) group.push(movement);
+        else groups.set(type, [movement]);
+    }
 
     return (
         <div className="space-y-5">
@@ -104,7 +116,7 @@ export default function StockLedger({ islemYapan }: { islemYapan?: string }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 className="text-lg font-bold text-slate-800 dark:text-white">Stok Hareketleri</h2>
-                    <p className="text-sm text-slate-500">Stok girişleri, düzeltmeler, satışlar ve iadeler · En yeni kayıt üstte</p>
+                    <p className="text-sm text-slate-500">İşlem türüne göre gruplu · Her grupta en yeni kayıt üstte</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                     <input type="search" aria-label="Stok defterinde ürün ara" placeholder="Ürün adına göre ara…" value={search} onChange={event => setSearch(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800" />
@@ -124,23 +136,31 @@ export default function StockLedger({ islemYapan }: { islemYapan?: string }) {
                         <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500 dark:bg-slate-800">
                             <tr>{['Tarih / Saat', 'Ürün', 'İşlem', 'Adet', 'Önceki Stok', 'Yeni Stok', 'İşlem Yapan'].map(label => <th key={label} className="whitespace-nowrap px-4 py-3">{label}</th>)}</tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {filtered.map(movement => {
-                                const date = movement.tarih?.toDate?.();
-                                const incoming = movement.miktarDegisimi > 0;
-                                return (
-                                    <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                        <td className="whitespace-nowrap px-4 py-3 text-slate-500">{date ? date.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : 'Tarih onaylanıyor…'}</td>
-                                        <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{movement.urunAdi}</td>
-                                        <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{movement.islemTipi}</td>
-                                        <td className={`px-4 py-3 font-bold ${incoming ? 'text-emerald-600' : 'text-rose-600'}`}>{incoming ? '+' : ''}{movement.miktarDegisimi}</td>
-                                        <td className="px-4 py-3 text-slate-500">{movement.eskiStok}</td>
-                                        <td className="px-4 py-3 font-bold text-slate-800 dark:text-slate-100">{movement.yeniStok}</td>
-                                        <td className="px-4 py-3 text-slate-500">{movement.islemYapan || 'Sistem Yöneticisi'}</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
+                        {[...groups].filter(([, items]) => items.length > 0).map(([type, items]) => (
+                            <tbody key={type} className="divide-y divide-slate-100 dark:divide-slate-800">
+                                <tr className="bg-slate-100 dark:bg-slate-800">
+                                    <th scope="rowgroup" colSpan={7} className="px-4 py-3 text-left font-bold text-slate-800 dark:text-slate-100">
+                                        {type}
+                                        <span className="ml-2 text-xs font-normal text-slate-500 dark:text-slate-400">{items.length} hareket</span>
+                                    </th>
+                                </tr>
+                                {items.map(movement => {
+                                    const date = movement.tarih?.toDate?.();
+                                    const incoming = movement.miktarDegisimi > 0;
+                                    return (
+                                        <tr key={movement.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                            <td className="whitespace-nowrap px-4 py-3 text-slate-500">{date ? date.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : 'Tarih onaylanıyor…'}</td>
+                                            <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{movement.urunAdi}</td>
+                                            <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">{movement.islemTipi}</td>
+                                            <td className={`px-4 py-3 font-bold ${incoming ? 'text-emerald-600' : 'text-rose-600'}`}>{incoming ? '+' : ''}{movement.miktarDegisimi}</td>
+                                            <td className="px-4 py-3 text-slate-500">{movement.eskiStok}</td>
+                                            <td className="px-4 py-3 font-bold text-slate-800 dark:text-slate-100">{movement.yeniStok}</td>
+                                            <td className="px-4 py-3 text-slate-500">{movement.islemYapan || 'Sistem Yöneticisi'}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        ))}
                     </table>
                 )}
                 {!loading && !error && <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500 dark:border-slate-800">{filtered.length} stok hareketi</p>}
