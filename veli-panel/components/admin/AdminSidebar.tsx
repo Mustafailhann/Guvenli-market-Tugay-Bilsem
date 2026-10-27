@@ -3,8 +3,9 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { signOut } from '@/lib/auth';
+import { canAccessAdminPath, type AdminAccess } from '@/lib/admin-access';
 
-export default function AdminSidebar() {
+export default function AdminSidebar({ access }: { access: AdminAccess }) {
     const pathname = usePathname();
     const router = useRouter();
 
@@ -145,7 +146,7 @@ export default function AdminSidebar() {
                 </div>
 
                 <nav className="space-y-1">
-                    {menuItems.map((item) => {
+                    {menuItems.filter(item => canAccessAdminPath(item.href, access)).map((item) => {
                         const isActive = pathname === item.href || (pathname.startsWith(item.href) && item.href !== '/admin');
 
                         return (
