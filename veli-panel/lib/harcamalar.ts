@@ -12,6 +12,7 @@ export interface HarcamaSatiri {
     urunler: string;
     tutar: number;
     satisId?: string;
+    islemFotografi?: string;
 }
 
 const tarihParcalari = new Intl.DateTimeFormat('en-US', {
@@ -75,6 +76,7 @@ export function harcamaSatirlariOlustur(ogrenciler: Ogrenci[]): HarcamaSatiri[] 
                 urunler: urunOzeti(islem),
                 tutar: Math.abs(islem.tutar),
                 satisId: islem.satisId,
+                islemFotografi: islem.islemFotografi,
             });
         }
     }

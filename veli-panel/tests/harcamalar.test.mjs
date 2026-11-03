@@ -66,3 +66,34 @@ test('ürün detayı olmayan eski satış açıkça işaretlenir', () => {
     }]);
     assert.equal(satirlar[0].urunler, 'Ürün bilgisi kaydedilmemiş');
 });
+
+test('aynı saatteki satışların fotoğrafları kendi öğrenci ve satış kimliğiyle korunur', () => {
+    const tarih = { toDate: () => new Date('2026-11-03T14:13:00Z') };
+    const satirlar = harcamaSatirlariOlustur([
+        { id: 'ogr-1', adSoyad: 'Öğrenci', islemGecmisi: [
+            { tarih, tip: 'Harcama', tutar: 10, satisId: 'pos_a', islemFotografi: 'islem_fotograflari/kart-1/pos_a.jpg' },
+            { tarih, tip: 'Harcama', tutar: 20, satisId: 'pos_b', islemFotografi: 'islem_fotograflari/kart-1/pos_b.jpg' },
+            { tarih, tip: 'Harcama', tutar: 30, satisId: 'pos_no_photo' },
+            { tarih, tip: 'Harcama', tutar: 40, satisId: 'pos_cancelled', islemFotografi: 'cancelled.jpg', isCancelled: true },
+        ] },
+        { id: 'ogr-2', adSoyad: 'Öğrenci', islemGecmisi: [
+            { tarih, tip: 'Ödeme', tutar: -15, satisId: 'pos_c', islemFotografi: 'islem_fotograflari/kart-2/pos_c.jpg' },
+            { tarih, tip: 'Ödeme', tutar: -5, islemFotografi: 'islem_fotograflari/kart-2/legacy.jpg' },
+        ] },
+    ]);
+    assert.equal(satirlar.length, 5);
+    for (const [id, ogrenciId, foto] of [
+        ['pos_a', 'ogr-1', 'islem_fotograflari/kart-1/pos_a.jpg'],
+        ['pos_b', 'ogr-1', 'islem_fotograflari/kart-1/pos_b.jpg'],
+        ['pos_c', 'ogr-2', 'islem_fotograflari/kart-2/pos_c.jpg'],
+    ]) {
+        const satir = satirlar.find(satir => satir.satisId === id);
+        assert.equal(satir.ogrenciId, ogrenciId);
+        assert.equal(satir.islemFotografi, foto);
+    }
+    assert.equal(satirlar.find(satir => satir.satisId === 'pos_no_photo').islemFotografi, undefined);
+    const eskiSatir = satirlar.find(satir => satir.islemFotografi?.endsWith('/legacy.jpg'));
+    assert.equal(eskiSatir.ogrenciId, 'ogr-2');
+    assert.equal(eskiSatir.satisId, undefined);
+    assert.equal(satirlar.some(satir => satir.satisId === 'pos_cancelled'), false);
+});

@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Ogrenci } from '@/types';
+import PhotoModal from '@/components/admin/PhotoModal';
 import {
     donemAraligi,
     donemKaydir,
     harcamaSatirlariOlustur,
     istanbulTarihAnahtari,
     type HarcamaDonemi,
+    type HarcamaSatiri,
 } from '@/lib/harcamalar';
 
 const donemler: { id: HarcamaDonemi; ad: string }[] = [
@@ -36,6 +38,7 @@ export default function HarcamalarPage() {
     const [hata, setHata] = useState('');
     const [aktarimHatasi, setAktarimHatasi] = useState('');
     const [aktariliyor, setAktariliyor] = useState(false);
+    const [seciliFotograf, setSeciliFotograf] = useState<HarcamaSatiri | null>(null);
 
     useEffect(() => {
         return onSnapshot(collection(db, 'ogrenciler'), snapshot => {
@@ -165,6 +168,7 @@ export default function HarcamalarPage() {
                                             <th scope="col" className="px-6 py-4">Öğrenci</th>
                                             <th scope="col" className="px-6 py-4">Alınan Ürünler</th>
                                             <th scope="col" className="whitespace-nowrap px-6 py-4 text-right">Tutar</th>
+                                            <th scope="col" className="whitespace-nowrap px-6 py-4 text-center">Fotoğraf</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
@@ -180,12 +184,31 @@ export default function HarcamalarPage() {
                                                 </td>
                                                 <td className="min-w-64 px-6 py-4 text-slate-700">{satir.urunler}</td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-right font-semibold text-slate-900">{paraBicimi.format(satir.tutar)}</td>
+                                                <td className="whitespace-nowrap px-6 py-4 text-center">
+                                                    {satir.islemFotografi ? (
+                                                        <button type="button" onClick={() => setSeciliFotograf(satir)}
+                                                            aria-label={`${satir.ogrenciAdi}, ${tarihGoster(satir.tarihAnahtari)} ${saatBicimi.format(satir.tarih)} alışverişinin fotoğrafını gör`}
+                                                            className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 font-medium text-blue-700 transition hover:bg-blue-100">
+                                                            <span aria-hidden="true">📷</span> Fotoğrafı Gör
+                                                        </button>
+                                                    ) : <span className="text-xs text-slate-400">Fotoğraf kaydı yok</span>}
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
                                 </table>
                             </div>}
             </section>
+            {seciliFotograf?.islemFotografi && (
+                <PhotoModal
+                    key={seciliFotograf.anahtar}
+                    isOpen
+                    onClose={() => setSeciliFotograf(null)}
+                    photoPath={seciliFotograf.islemFotografi}
+                    saleId={seciliFotograf.satisId}
+                    timestamp={seciliFotograf.tarih.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}
+                />
+            )}
         </main>
     );
 }
