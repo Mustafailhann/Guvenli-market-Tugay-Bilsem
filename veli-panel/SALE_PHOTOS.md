@@ -65,11 +65,6 @@ Webi eski fotoğraf kaynağına döndürmek için `PHOTO_STORAGE_BACKEND` deği�
 kaldırıp yeniden yayımlayın. Yeni APK bulut tekrar etkinleşene kadar fotoğrafları
 silmeden bekletir. Bilgisayar JPEG'lerini ve manifesti canlı doğrulama bitene kadar koruyun.
 
-POS 1.0.10, `/api/photos/status` adresine yalnız bekleyen/yeniden denenen dosya
-sayısını, son HTTP kodunu ve sabit hata türünü bildirir. Sunucu etkin POS oturumunu
-doğrular; öğrenci adı, satış kimliği veya fotoğraf içeriği tanı loguna yazılmaz.
-Durum değişmedikçe bildirim aralığı en az beş dakikadır. Bu uç Firestore'a yazmaz.
-
 ## Plan
 
 Hobby kotası dolduğunda fotoğraf işlemleri durabilir; kuyruk dosyaları korunur.
