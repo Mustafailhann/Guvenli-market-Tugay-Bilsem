@@ -20,8 +20,9 @@ fotoğrafını yükleyebilir. Farklı içerik mevcut fotoğrafın üzerine yazı
    buluttan geri okunmuş SHA-256 özeti doğrulanmıştır. Kaynaklar silinmez.
 4. Vercel Production'da `PHOTO_STORAGE_BACKEND=vercel-blob` ayarlayıp webi yayımlayın.
    Bu değişken yokken mevcut GET fotoğraf servisi çalışmaya devam eder; yeni PUT
-   503 döner ve tablet fotoğrafı saklar. `PHOTO_SERVER_URL` varsa henüz taşınmamış
-   eski fotoğraflar için geçici geri dönüş olarak kullanılır.
+   503 döner ve tablet fotoğrafı saklar. `PHOTO_SERVER_URL` yalnız bulut kapalıyken
+   eski fotoğraf kaynağına geri dönmek için korunur.
+   Bulut etkinken eksik JPEG doğrudan 404 döner; eski tünele başvurulmaz.
 5. POS 1.0.9'u mevcut uygulamanın üzerine kurun. Yeni kuyruk ana panelin HTTPS/443
    adresine gönderir. Satış internetsizken fotoğraf kalıcı dosyada bekler;
    satış Firestore'a ulaşmadan yüklemeye 404 verilmesi tekrar denenecek durumdur.
@@ -63,6 +64,11 @@ değiştirmez. Başarısız dosya yükleme satışın tekrar işlenmesini tetikl
 Webi eski fotoğraf kaynağına döndürmek için `PHOTO_STORAGE_BACKEND` değişkenini
 kaldırıp yeniden yayımlayın. Yeni APK bulut tekrar etkinleşene kadar fotoğrafları
 silmeden bekletir. Bilgisayar JPEG'lerini ve manifesti canlı doğrulama bitene kadar koruyun.
+
+POS 1.0.10, `/api/photos/status` adresine yalnız bekleyen/yeniden denenen dosya
+sayısını, son HTTP kodunu ve sabit hata türünü bildirir. Sunucu etkin POS oturumunu
+doğrular; öğrenci adı, satış kimliği veya fotoğraf içeriği tanı loguna yazılmaz.
+Durum değişmedikçe bildirim aralığı en az beş dakikadır. Bu uç Firestore'a yazmaz.
 
 ## Plan
 

@@ -57,7 +57,9 @@ export function createPhotoHandlers(deps: PhotoDependencies) {
             if (method === 'GET') {
                 await allowPhotoRead(reader, actor, saleId);
                 const bytes = await deps.store.read(path);
-                if (!bytes) return await legacy(token, saleId);
+                // After cloud activation a missing object is an upload still pending,
+                // not a reason to contact the retired PC/Cloudflare tunnel.
+                if (!bytes) return message('Fotoğraf henüz yüklenmedi.', 404);
                 return new Response(Buffer.from(bytes), { headers: {
                     ...privateHeaders, 'Content-Type': 'image/jpeg', 'X-Photo-Storage': 'vercel-blob',
                 } });

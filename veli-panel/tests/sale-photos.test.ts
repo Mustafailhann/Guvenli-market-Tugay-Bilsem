@@ -225,6 +225,19 @@ test('Firestore denial, network failure and missing docs are preserved', async (
     assert.equal(await createPhotoReader('token', project, async () => new Response('', { status: 404 })).get('satislar', saleId), null);
 });
 
+test('missing cloud photo never contacts retired PC tunnel or returns its 530 error', async () => {
+    const f = fixture();
+    f.actor({ uid: 'admin-uid', admin: true });
+    let legacyCalls = 0;
+    const handler = createPhotoHandlers({ ...f.dependencies,
+        legacyOrigin: () => 'https://retired-photo.example',
+        fetcher: async () => { legacyCalls++; return new Response('Tunnel offline', { status: 530 }); },
+    });
+    const result = await handler(request('GET'), saleId, 'GET');
+    assert.equal(result.status, 404);
+    assert.equal(legacyCalls, 0);
+});
+
 test('decode nested Firestore history without coercing student identifiers', () => {
     assert.deepEqual(decodeFields({ card: { stringValue: '00123' },
         history: { arrayValue: { values: [{ mapValue: { fields: { satisId: { stringValue: saleId }, tutar: { doubleValue: 1.5 } } } }] } },
