@@ -23,12 +23,14 @@ export default function PhotoModal({
     const [photoUrl, setPhotoUrl] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [flipped, setFlipped] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
         let objectUrl: string | null = null;
 
         const loadPhoto = async () => {
+            setFlipped(false);
             if (!isOpen || !photoPath) {
                 setPhotoUrl(null);
                 setError('');
@@ -134,6 +136,7 @@ export default function PhotoModal({
                                 setError("Resim sunucuda bulunamadı veya hata oluştu.");
                             }}
                             style={{ 
+                                transform: flipped ? 'rotate(180deg)' : undefined,
                                 opacity: loading ? 0 : 1, 
                                 position: loading ? 'absolute' : 'relative' 
                             }}
@@ -149,12 +152,26 @@ export default function PhotoModal({
                         </svg>
                         {deviceName}
                     </span>
-                    <button
-                        onClick={onClose}
-                        className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors"
-                    >
-                        Kapat
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {photoUrl && !loading && !error && (
+                            <button
+                                type="button"
+                                onClick={() => setFlipped(value => !value)}
+                                aria-label="Fotoğrafı 180 derece döndür"
+                                aria-pressed={flipped}
+                                title="Eski fotoğrafın görüntü yönünü çevirir."
+                                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors"
+                            >
+                                180° Çevir
+                            </button>
+                        )}
+                        <button
+                            onClick={onClose}
+                            className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg font-medium transition-colors"
+                        >
+                            Kapat
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

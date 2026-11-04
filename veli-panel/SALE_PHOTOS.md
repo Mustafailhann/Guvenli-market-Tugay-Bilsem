@@ -22,7 +22,7 @@ fotoğrafını yükleyebilir. Farklı içerik mevcut fotoğrafın üzerine yazı
    Bu değişken yokken mevcut GET fotoğraf servisi çalışmaya devam eder; yeni PUT
    503 döner ve tablet fotoğrafı saklar. `PHOTO_SERVER_URL` varsa henüz taşınmamış
    eski fotoğraflar için geçici geri dönüş olarak kullanılır.
-5. POS 1.0.8'i mevcut uygulamanın üzerine kurun. Yeni kuyruk ana panelin HTTPS/443
+5. POS 1.0.9'u mevcut uygulamanın üzerine kurun. Yeni kuyruk ana panelin HTTPS/443
    adresine gönderir. Satış internetsizken fotoğraf kalıcı dosyada bekler;
    satış Firestore'a ulaşmadan yüklemeye 404 verilmesi tekrar denenecek durumdur.
    Dosya ancak aynı satış kimliği ve aynı SHA-256 onayı alındığında silinir.
@@ -43,11 +43,17 @@ node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/migrate-sale-photos.
 
 Üretim yerine yalnız Preview üzerinde test etmek için `PHOTO_STORAGE_BACKEND`
 değişkenini yalnız test dalının Preview ortamına ekleyin. `PHOTO_COPY_VERIFY_EXPECTED`
-(`adet:sha256`) isteğe bağlı Preview build kontrolüdür: depodaki bütün JPEG'leri
+(`adet:sha256`) ve `npm run verify:photo-copy` isteğe bağlı, elle çalıştırılan Preview
+kopyalama kontrolüdür: depodaki bütün JPEG'leri
 Vercel sunucusundan okur ve yerel dosyaların sıralı `satışKimliği:sha256:boyut\n`
 manifestinin birleşik SHA-256 özetiyle karşılaştırır. Log yalnız doğrulanan adedi
-gösterir. Kontrol bittikten sonra bu değişkeni kaldırın; yeni satışlar kopyalama
-manifestinin dışında kalır. Bu kontrol Production'da çalışmaz.
+gösterir. İlk 186 dosyanın buluttan okunarak doğrulanması 3 Kasım 2026'da tamamlandı.
+Yeni satışlar kopyalama manifestinin dışında kaldığı için kontrol artık otomatik
+derleme adımı değildir. Bu kontrol Production'da çalışmaz.
+
+Preview adresleri Vercel oturumu isteyebilir. POS'a Vercel erişim anahtarı veya
+koruma atlama belirteci eklemeyin. Kullanıcı canlı geçişi onaylamadan ana alan adının
+yükleme yolu kullanılabilir kabul edilmemeli; APK bu aşamada dosyaları kuyruğunda tutar.
 
 `node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test tests/sale-photos.test.ts`
 ve normal web üretim derlemesi çalıştırılır. Stok transaction testleri yalnız yerel

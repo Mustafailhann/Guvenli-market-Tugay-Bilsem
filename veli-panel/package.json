@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "postbuild": "node scripts/verify-sale-photo-copy.mjs",
+    "verify:photo-copy": "node scripts/verify-sale-photo-copy.mjs",
     "start": "next start",
     "lint": "eslint"
   },
