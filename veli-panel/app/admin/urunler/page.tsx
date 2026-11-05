@@ -5,6 +5,9 @@ import { subscribeProducts, addProduct, updateProductWithStockLedger, deleteProd
 import { auth } from '@/lib/firebase';
 import { Urun } from '@/types';
 import * as XLSX from 'xlsx';
+import Link from 'next/link';
+import { subscribeCategories } from '@/lib/categories';
+import { categoryKey, categoryName, defaultCategorySettings, resolveCategories } from '@/lib/category-model';
 
 export default function ProductsPage() {
     const [products, setProducts] = useState<Urun[]>([]);
@@ -24,7 +27,14 @@ export default function ProductsPage() {
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
 
-    const categories = ['İçecekler', 'Atıştırmalıklar', 'Tatlılar', 'Gofretler', 'Kekler', 'Krakerler', 'Çikolatalar', 'Diğer'];
+    const [categorySettings, setCategorySettings] = useState(defaultCategorySettings);
+    const [categoriesError, setCategoriesError] = useState('');
+    const categories = resolveCategories(categorySettings.categories, [...products.map(product => categoryKey(product.kategori)), category]);
+
+    useEffect(() => subscribeCategories(settings => {
+        setCategorySettings(settings);
+        setCategoriesError('');
+    }, error => setCategoriesError(error.message)), []);
 
     useEffect(() => {
         return subscribeProducts(data => {
@@ -50,7 +60,7 @@ export default function ProductsPage() {
             setEditingProduct(null);
             setName('');
             setPrice('');
-            setCategory('Diğer');
+            setCategory(categorySettings.categories.find(item => item.active && item.name.toLocaleLowerCase('tr-TR') === 'diğer')?.key || 'Diğer');
             setStock('0');
             setImageUrlInput('');
             setImagePreview(null);
@@ -137,7 +147,7 @@ export default function ProductsPage() {
     const exportStockExcel = () => {
         const data = products.map(p => ({
             'Ürün Adı': p.ad,
-            'Kategori': p.kategori || '-',
+            'Kategori': categoryName(categorySettings.categories, categoryKey(p.kategori)),
             'Fiyat (₺)': p.fiyat,
             'Stok Adedi': p.stok,
             'Durum': p.stok <= 15 ? '⚠️ Düşük Stok' : '✅ Normal'
@@ -152,9 +162,11 @@ export default function ProductsPage() {
     return (
         <div className="p-6">
             {productsError && <p role="alert" className="mb-4 rounded-lg bg-red-50 p-4 text-red-700">{productsError}</p>}
+            {categoriesError && <p role="alert" className="mb-4 rounded-lg bg-amber-50 p-4 text-amber-800">Kategori ayarları yüklenemedi: {categoriesError}</p>}
             <div className="flex justify-between items-center mb-6">
                 <h1 className="text-2xl font-bold text-gray-800">Ürün Yönetimi</h1>
                 <div className="flex gap-3">
+                    <Link href="/admin/kategoriler" className="border border-indigo-200 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-50">Kategorileri Düzenle</Link>
                     <button
                         onClick={exportStockExcel}
                         className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2"
@@ -239,7 +251,7 @@ export default function ProductsPage() {
                             <div className="p-4">
                                 <div className="flex justify-between items-start mb-2">
                                     <h3 className="text-lg font-semibold text-gray-800 truncate" title={product.ad}>{product.ad}</h3>
-                                    <span className="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">{product.kategori}</span>
+                                    <span className="bg-indigo-100 text-indigo-800 text-xs px-2 py-1 rounded-full whitespace-nowrap">{categoryName(categorySettings.categories, categoryKey(product.kategori))}</span>
                                 </div>
                                 <div className="flex justify-between items-center mt-2">
                                     <span className="text-xl font-bold text-indigo-600">{product.fiyat.toFixed(2)} ₺</span>
@@ -299,14 +311,15 @@ export default function ProductsPage() {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+                                    <label htmlFor="product-category" className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
                                     <select
+                                        id="product-category"
                                         className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                         value={category}
                                         onChange={(e) => setCategory(e.target.value)}
                                     >
                                         {categories.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
+                                            <option key={cat.key} value={cat.key}>{cat.name}</option>
                                         ))}
                                     </select>
                                 </div>

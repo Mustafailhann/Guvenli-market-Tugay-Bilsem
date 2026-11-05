@@ -85,6 +85,15 @@ export default function AdminSidebar({ access }: { access: AdminAccess }) {
             )
         },
         {
+            name: 'Kategoriler',
+            href: '/admin/kategoriler',
+            icon: (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
+                </svg>
+            )
+        },
+        {
             name: 'Stok Defteri',
             href: '/admin/stok-defteri',
             icon: (

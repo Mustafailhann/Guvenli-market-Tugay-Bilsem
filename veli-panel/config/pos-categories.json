@@ -1,0 +1,9 @@
+[
+  { "key": "İçecekler", "name": "İçecekler", "icon": "drink", "color": "#2196F3", "active": true },
+  { "key": "Atıştırmalıklar", "name": "Atıştırmalıklar", "icon": "cookie", "color": "#FF9800", "active": true },
+  { "key": "Tatlılar", "name": "Tatlılar", "icon": "cake", "color": "#F44336", "active": true },
+  { "key": "Gofretler", "name": "Gofretler", "icon": "fastfood", "color": "#795548", "active": true },
+  { "key": "Kekler", "name": "Kekler", "icon": "breakfast", "color": "#FFEB3B", "active": true },
+  { "key": "Krakerler", "name": "Krakerler", "icon": "bakery", "color": "#FFAB40", "active": true },
+  { "key": "Çikolatalar", "name": "Çikolatalar", "icon": "icecream", "color": "#795548", "active": true }
+]
