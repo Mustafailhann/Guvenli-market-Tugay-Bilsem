@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="juice" x2="1" y2="1"><stop stop-color="#ffce55"/><stop offset="1" stop-color="#f57c20"/></linearGradient><linearGradient id="glass" x2="1"><stop stop-color="#f7ffff"/><stop offset="1" stop-color="#b9e7ef"/></linearGradient></defs>
+  <ellipse cx="63" cy="114" rx="37" ry="6" fill="#172b4d" opacity=".17"/>
+  <path d="M34 32h60l-7 74a8 8 0 0 1-8 7H49a8 8 0 0 1-8-7z" fill="url(#glass)" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M39 48h50l-6 57H45z" fill="url(#juice)"/>
+  <path d="m60 76 13-58 21-8" fill="none" stroke="#fff" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m60 76 13-58 21-8" fill="none" stroke="#ee5967" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m48 54 4 40" stroke="#fff" stroke-width="5" stroke-linecap="round" opacity=".55"/>
+  <path d="M34 32h60" stroke="#66b5c7" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="93" cy="48" r="20" fill="#f5a523" stroke="#fff" stroke-width="4"/>
+  <circle cx="93" cy="48" r="15" fill="#ffdd69"/>
+  <path d="M93 34v28M79 48h28M83 38l20 20M83 58l20-20" stroke="#fff7d6" stroke-width="2.5"/>
+</svg>

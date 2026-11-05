@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="wafer" x2="0" y2="1"><stop stop-color="#f8d59a"/><stop offset="1" stop-color="#d49c53"/></linearGradient></defs>
+  <ellipse cx="64" cy="113" rx="46" ry="7" fill="#172b4d" opacity=".17"/>
+  <g stroke-linejoin="round">
+    <path d="m14 65 64-29 37 29v28l-65 28-36-27z" fill="#c38b49" stroke="#fff" stroke-width="5"/>
+    <path d="m14 65 36 28 65-28-37-29z" fill="#edc481"/>
+    <path d="m15 77 35 27 64-28v6l-64 28-35-27z" fill="#fff1cc"/>
+    <path d="m16 86 34 25 63-27v5l-63 28-34-26z" fill="#9a5b34"/>
+    <path d="m14 48 64-29 37 29v17L50 93 14 66z" fill="#d9a25e" stroke="#fff" stroke-width="4"/>
+    <path d="m14 48 64-29 37 29-65 28z" fill="url(#wafer)"/>
+    <path d="m15 57 35 27 64-28v5L50 89 15 62z" fill="#fff0c4"/>
+    <path d="m26 42 36 29m-22-35 36 29m-22-35 36 29M68 24l35 29M24 56l65-29M36 66l65-29" fill="none" stroke="#bc8343" stroke-width="2"/>
+    <path d="m18 46 61-27" fill="none" stroke="#fff1ce" stroke-width="3"/>
+  </g>
+</svg>

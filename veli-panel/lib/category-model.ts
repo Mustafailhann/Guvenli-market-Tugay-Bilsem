@@ -1,14 +1,15 @@
 import defaults from '../config/pos-categories.json' with { type: 'json' };
 
 export const categoryIcons = [
-    { value: 'drink', label: 'İçecek', symbol: '🥤' },
-    { value: 'cookie', label: 'Kurabiye', symbol: '🍪' },
-    { value: 'cake', label: 'Pasta', symbol: '🎂' },
-    { value: 'fastfood', label: 'Yiyecek', symbol: '🍔' },
-    { value: 'breakfast', label: 'Ekmek', symbol: '🍞' },
-    { value: 'bakery', label: 'Kraker', symbol: '🥐' },
-    { value: 'icecream', label: 'Dondurma', symbol: '🍦' },
-    { value: 'basket', label: 'Sepet', symbol: '🛒' },
+    // Keep the saved icon keys compatible with previously installed POS versions.
+    { value: 'drink', label: 'İçecek', image: '/category-icons/drink.png' },
+    { value: 'cookie', label: 'Atıştırmalık', image: '/category-icons/cookie.png' },
+    { value: 'cake', label: 'Tatlı', image: '/category-icons/cake.png' },
+    { value: 'fastfood', label: 'Gofret', image: '/category-icons/fastfood.png' },
+    { value: 'breakfast', label: 'Kek', image: '/category-icons/breakfast.png' },
+    { value: 'bakery', label: 'Kraker', image: '/category-icons/bakery.png' },
+    { value: 'icecream', label: 'Çikolata', image: '/category-icons/icecream.png' },
+    { value: 'basket', label: 'Sepet', image: '/category-icons/basket.png' },
 ] as const;
 
 export interface PosCategory {

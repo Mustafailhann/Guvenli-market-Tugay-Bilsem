@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><radialGradient id="biscuit" cx=".4" cy=".3"><stop stop-color="#ffe1a0"/><stop offset="1" stop-color="#d88f42"/></radialGradient></defs>
+  <ellipse cx="64" cy="113" rx="44" ry="6" fill="#172b4d" opacity=".17"/>
+  <circle cx="48" cy="74" r="36" fill="#bd7a36" stroke="#fff" stroke-width="5"/>
+  <circle cx="48" cy="70" r="33" fill="#e8b46a"/>
+  <path d="M24 59h46M20 71h55M25 83h46M35 42v54M48 38v62M61 43v53" stroke="#bc8548" stroke-width="2" opacity=".55"/>
+  <circle cx="79" cy="56" r="41" fill="url(#biscuit)" stroke="#fff" stroke-width="5"/>
+  <circle cx="79" cy="56" r="33" fill="none" stroke="#b77837" stroke-width="2" stroke-dasharray="2 5"/>
+  <path d="m65 28 9 4-4 10-10-4zM91 37l10 5-4 10-10-4zM69 55l10 3-3 11-11-4zM48 49l8-3 4 9-8 4zM90 69l9 4-5 9-9-4z" fill="#60372a"/>
+  <circle cx="61" cy="77" r="4" fill="#7b4630"/><circle cx="83" cy="45" r="3" fill="#7b4630"/>
+  <path d="M57 27a34 34 0 0 1 24-8" fill="none" stroke="#fff6de" stroke-width="4" stroke-linecap="round" opacity=".65"/>
+</svg>

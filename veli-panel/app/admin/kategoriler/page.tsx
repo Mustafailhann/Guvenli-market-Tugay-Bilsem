@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { saveCategories, subscribeCategories } from '@/lib/categories';
 import { categoryIcons, categoryKey, defaultCategorySettings, resolveCategories, type CategorySettings, type PosCategory } from '@/lib/category-model';
 import { subscribeProducts } from '@/lib/products';
@@ -135,7 +136,8 @@ export default function CategoriesPage() {
                         <section key={item.key} aria-label={`${item.name || 'Yeni kategori'} ayarları`}
                             className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-wrap gap-4 items-end">
                             <div className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl self-center shrink-0" style={{ backgroundColor: item.color }} aria-hidden="true">
-                                {categoryIcons.find(icon => icon.value === item.icon)?.symbol}
+                                <Image src={categoryIcons.find(icon => icon.value === item.icon)?.image || '/category-icons/basket.png'}
+                                    alt="" width={48} height={48} unoptimized />
                             </div>
                             <div className="flex-1 min-w-40">
                                 <label htmlFor={`category-name-${index}`} className="block text-sm font-medium text-gray-700 mb-1">Kategori adı</label>
@@ -148,7 +150,7 @@ export default function CategoriesPage() {
                                 <label htmlFor={`category-icon-${index}`} className="block text-sm font-medium text-gray-700 mb-1">Simge</label>
                                 <select id={`category-icon-${index}`} value={item.icon} disabled={saving} onChange={event => edit(item, { icon: event.target.value })}
                                     className="border border-gray-300 rounded-lg px-3 py-2 text-gray-900">
-                                    {categoryIcons.map(icon => <option key={icon.value} value={icon.value}>{icon.symbol} {icon.label}</option>)}
+                                    {categoryIcons.map(icon => <option key={icon.value} value={icon.value}>{icon.label}</option>)}
                                 </select>
                             </div>
                             <div>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="cracker" x2="1" y2="1"><stop stop-color="#ffe6a6"/><stop offset="1" stop-color="#d79b47"/></linearGradient></defs>
+  <ellipse cx="64" cy="113" rx="45" ry="6" fill="#172b4d" opacity=".17"/>
+  <g transform="rotate(-13 48 74)">
+    <rect x="14" y="40" width="66" height="66" rx="8" fill="#c28b40" stroke="#fff" stroke-width="5"/>
+    <rect x="18" y="40" width="58" height="59" rx="6" fill="#e6b967"/>
+    <path d="M25 54h43M25 64h43M25 74h43M25 84h43M31 47v44M43 47v44M55 47v44M67 47v44" stroke="#bc863e" stroke-width="2" opacity=".4"/>
+  </g>
+  <g transform="rotate(12 80 55)">
+    <rect x="46" y="19" width="67" height="67" rx="8" fill="url(#cracker)" stroke="#fff" stroke-width="5"/>
+    <rect x="53" y="26" width="53" height="53" rx="4" fill="none" stroke="#b77f38" stroke-width="2" stroke-dasharray="2 4"/>
+    <g fill="#ac7633"><circle cx="66" cy="40" r="2.5"/><circle cx="81" cy="40" r="2.5"/><circle cx="96" cy="40" r="2.5"/><circle cx="66" cy="54" r="2.5"/><circle cx="81" cy="54" r="2.5"/><circle cx="96" cy="54" r="2.5"/><circle cx="66" cy="68" r="2.5"/><circle cx="81" cy="68" r="2.5"/><circle cx="96" cy="68" r="2.5"/></g>
+    <path d="m59 33 3 1m25-3 2 2m-31 27 3-1m25 14 2 2m12-23 2-1" stroke="#fff9df" stroke-width="3" stroke-linecap="round"/>
+  </g>
+</svg>

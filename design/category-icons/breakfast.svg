@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="muffin" x2="0" y2="1"><stop stop-color="#dca060"/><stop offset="1" stop-color="#9b572e"/></linearGradient><linearGradient id="paper" x2="1"><stop stop-color="#fff2ca"/><stop offset="1" stop-color="#e9b968"/></linearGradient></defs>
+  <ellipse cx="64" cy="113" rx="39" ry="6" fill="#172b4d" opacity=".17"/>
+  <path d="m26 62 11 43a9 9 0 0 0 9 7h36a9 9 0 0 0 9-7l11-43z" fill="url(#paper)" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="m40 68 8 37m6-36 4 38m15-38-4 38m19-39-8 37" fill="none" stroke="#cc9144" stroke-width="3"/>
+  <path d="M27 68c-9-6-10-20 0-27-3-14 8-25 21-24 9-13 26-12 33-1 16-1 26 10 23 23 12 9 9 25-2 29-5 3-11-1-16-1-8 1-9 5-18 5-9 0-11-5-18-5s-15 5-23 1z" fill="url(#muffin)" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M34 35c8-14 23-15 31-15" fill="none" stroke="#f7ca8a" stroke-width="5" stroke-linecap="round"/>
+  <path d="m49 34 9 4-3 8-9-3zM77 27l8 5-5 8-8-5zM72 51l10 2-2 9-10-2zM32 51l8-3 3 8-8 3zM91 45l6 4-4 6-6-3z" fill="#563225"/>
+</svg>

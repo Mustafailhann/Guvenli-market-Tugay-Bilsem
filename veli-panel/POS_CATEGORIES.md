@@ -11,6 +11,13 @@ geçerli ayar kullanılır; henüz ayar indirilmediyse mevcut yedi kategori aç�
 Eski APK'lar sabit kategorileri kullanmaya devam eder; yeni kategori eklemeden
 önce bütün POS cihazlarını güncelleyin.
 
+**1.0.11 (12)** sürümünde kategori görselleri web paneliyle aynı, uygulama içine
+gömülü ürün çizimleridir. Stoku sıfır veya altında olan ürünler POS satış
+listesinde gösterilmez; pozitif stok güncellemesi gelince otomatik geri görünür.
+Stok/bakiye işlemleri değişmez. Mevcut `icon` anahtarları eski APK uyumluluğu
+için korunur; örneğin `breakfast` kek, `fastfood` gofret, `icecream` çikolata
+görseline karşılık gelir. Bu güncelleme Firebase kayıtlarına geçiş yazımı yapmaz.
+
 ## Veri sınırı
 
 - Tek ayar belgesi: `app_settings/pos_kategorileri` (şema 1).

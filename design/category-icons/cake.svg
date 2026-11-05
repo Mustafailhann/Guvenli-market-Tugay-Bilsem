@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs><linearGradient id="sponge" x2="0" y2="1"><stop stop-color="#ffdf9b"/><stop offset="1" stop-color="#dba753"/></linearGradient></defs>
+  <ellipse cx="64" cy="112" rx="50" ry="7" fill="#172b4d" opacity=".17"/>
+  <path d="m16 61 44-39 52 24v53L52 113l-36-23z" fill="url(#sponge)" stroke="#fff" stroke-width="5" stroke-linejoin="round"/>
+  <path d="m52 64 60-18v53l-60 14z" fill="#ecc27a"/>
+  <path d="m17 72 35 22 60-16v11l-60 17-35-23z" fill="#fff6e6"/>
+  <path d="m17 69 35 22 60-16v5L52 96 17 74z" fill="#c94b61"/>
+  <path d="m16 61 44-39 52 24-60 22z" fill="#fffaf1" stroke="#fff" stroke-width="4" stroke-linejoin="round"/>
+  <path d="m16 61 36 7 60-22v10L52 78 16 69z" fill="#f6efdf"/>
+  <path d="M66 35c-18-17-31 2-8 19 5 4 9 4 13 0 22-18 11-34-5-19" fill="#e84e60" stroke="#b93046" stroke-width="2"/>
+  <path d="m63 34-2-9 7 5 5-7-1 12" fill="#68a84f"/>
+  <path d="m56 37 2 3m8 1 2 3m4-7 1 3m-9 7 2 3" stroke="#ffe2ad" stroke-width="2" stroke-linecap="round"/>
+</svg>
